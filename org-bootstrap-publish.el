@@ -343,8 +343,12 @@ No `git worktree' or anything fancy required -- a plain
 (defun org-bootstrap-publish--post-url (post)
   (org-bootstrap-publish--url (org-bootstrap-publish--post-path post)))
 
+(defun org-bootstrap-publish--tag-path (tag)
+  "Relative URL path (no leading slash) to TAG's directory."
+  (concat "tags/" (org-bootstrap-publish--slugify tag) "/"))
+
 (defun org-bootstrap-publish--tag-url (tag)
-  (org-bootstrap-publish--url "tags/" (org-bootstrap-publish--slugify tag) ".html"))
+  (org-bootstrap-publish--url (org-bootstrap-publish--tag-path tag)))
 
 (defun org-bootstrap-publish--tag-pills (tags)
   (mapconcat
@@ -558,11 +562,21 @@ No `git worktree' or anything fancy required -- a plain
 
 ;;;; Feed
 
-(defun org-bootstrap-publish--feed (posts)
+(defun org-bootstrap-publish--feed (posts &optional title rel-path)
+  "Render an Atom feed of POSTS.
+Optional TITLE overrides the feed title (default: site title).
+Optional REL-PATH is the feed's location relative to the site root
+(default: \"\", the home feed at `index.xml').  Used to set the
+`<link rel=\"self\">' and `<id>' so subscribers polling a tag feed
+see stable identifiers."
   (let* ((n (min 20 (length posts)))
          (recent (cl-subseq posts 0 n))
          (url (or org-bootstrap-publish-site-url "https://example.com/"))
          (url (if (string-suffix-p "/" url) url (concat url "/")))
+         (rel (or rel-path ""))
+         (self (concat url rel "index.xml"))
+         (alt (concat url rel))
+         (feed-title (or title org-bootstrap-publish-site-title))
          (updated (or (org-bootstrap-publish--iso
                        (plist-get (car recent) :date))
                       (org-bootstrap-publish--iso (current-time))))
@@ -589,10 +603,10 @@ No `git worktree' or anything fancy required -- a plain
      "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
      "<feed xmlns=\"http://www.w3.org/2005/Atom\">\n"
      (format "<title>%s</title>\n"
-             (org-bootstrap-publish--escape org-bootstrap-publish-site-title))
-     (format "<link href=\"%s\"/>\n" url)
-     (format "<link rel=\"self\" href=\"%sindex.xml\"/>\n" url)
-     (format "<id>%s</id>\n" url)
+             (org-bootstrap-publish--escape feed-title))
+     (format "<link href=\"%s\"/>\n" alt)
+     (format "<link rel=\"self\" href=\"%s\"/>\n" self)
+     (format "<id>%s</id>\n" alt)
      (format "<updated>%s</updated>\n" updated)
      (format "<author><name>%s</name></author>\n"
              (org-bootstrap-publish--escape org-bootstrap-publish-author))
@@ -654,13 +668,19 @@ No `git worktree' or anything fancy required -- a plain
     (org-bootstrap-publish--render-index posts)))
   (dolist (tc tag-counts)
     (let* ((tag (car tc))
-           (slug (org-bootstrap-publish--slugify tag))
+           (tag-path (org-bootstrap-publish--tag-path tag))
            (matching (org-bootstrap-publish--posts-with-tag tag posts)))
       (org-bootstrap-publish--write
-       (expand-file-name (concat "tags/" slug ".html") out)
+       (expand-file-name (concat tag-path "index.html") out)
        (org-bootstrap-publish--page
         (format "#%s | %s" tag org-bootstrap-publish-site-title)
-        (org-bootstrap-publish--render-tag-page tag matching)))))
+        (org-bootstrap-publish--render-tag-page tag matching)))
+      (org-bootstrap-publish--write
+       (expand-file-name (concat tag-path "index.xml") out)
+       (org-bootstrap-publish--feed
+        matching
+        (format "%s on %s" tag org-bootstrap-publish-site-title)
+        tag-path))))
   (org-bootstrap-publish--write
    (expand-file-name "posts.html" out)
    (org-bootstrap-publish--page
