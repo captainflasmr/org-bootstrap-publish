@@ -433,6 +433,8 @@ No `git worktree' or anything fancy required -- a plain
      (format "<script src=\"%s\" defer></script>\n"
              (org-bootstrap-publish--url "assets/search.js"))
      "<script>document.addEventListener('click',function(e){var b=e.target.closest('.theme-toggle');if(!b)return;var n=document.documentElement.getAttribute('data-bs-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-bs-theme',n);try{localStorage.setItem('obp-theme',n);}catch(_){}});</script>\n"
+     (format "<script>(function(){if(!/^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname))return;var last=null;setInterval(function(){fetch('%s',{cache:'no-store'}).then(function(r){return r.ok?r.text():null;}).then(function(t){if(t==null)return;if(last===null){last=t;return;}if(t!==last){location.reload();}}).catch(function(){});},1000);})();</script>\n"
+             (org-bootstrap-publish--url "reload-token"))
      "</body>\n"
      "</html>\n")))
 
@@ -835,7 +837,10 @@ the next full build."
        (expand-file-name "feed.xml" out) feed)))
   (org-bootstrap-publish--write
    (expand-file-name "index.json" out)
-   (org-bootstrap-publish--index-json posts)))
+   (org-bootstrap-publish--index-json posts))
+  (org-bootstrap-publish--write
+   (expand-file-name "reload-token" out)
+   (format "%.6f\n" (float-time))))
 
 ;;;###autoload
 (defun org-bootstrap-publish (&optional source-file output-dir)

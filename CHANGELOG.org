@@ -26,6 +26,11 @@ Pending work on =main= not yet covered by a release tag:
   next full build (=M-x org-bootstrap-publish-async=).
 - Save-hook rebuild also re-copies =assets/=, so stylesheet edits
   flow through to =public/= without needing a separate full build.
+- Live-reload for the dev server.  Each build writes a timestamp to
+  =public/reload-token=; every generated page embeds a small script
+  that polls that file once a second from =localhost= and calls
+  =location.reload()= when it changes.  The hostname check means the
+  script is a no-op on the deployed site.
 
 * 2026-04-23
 
