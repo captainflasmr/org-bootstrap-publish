@@ -1,0 +1,132 @@
+#+title: Transitioning from Hugo to org-bootstrap-publish
+#+author: James Dyer
+#+options: toc:2
+
+A short guide for swapping a Hugo + ox-hugo site over to =org-bootstrap-publish=.  Written against the =emacs.dyerdwelling.family= setup, but the steps apply to any single-=README.org= Hugo site.
+
+* What changes
+
+| Concern | Before                          | After                            |
+|---------+---------------------------------+----------------------------------|
+| Source  | =README.org= + ox-hugo Markdown | =README.org= (unchanged)         |
+| Builder | =hugo= CLI                      | =emacs --batch= + this pkg       |
+| Theme   | =themes/hyde=                   | Bootstrap 5 + =assets/style.css= |
+| Output  | =public/=                       | =public/=                        |
+| Deploy  | GH Actions (=hugo.yml=)         | GH Actions or local push         |
+
+Importantly, =README.org= itself does not change.  The same drawer properties (=EXPORT_FILE_NAME=, =EXPORT_HUGO_LASTMOD=, the =:thumbnail= entry in =EXPORT_HUGO_CUSTOM_FRONT_MATTER+=) are read by both builders.
+
+* Pre-flight check
+
+Before touching the live site, run the new builder against the Org file and inspect the result locally.
+
+1. Load the package:
+   #+begin_src elisp
+   (add-to-list 'load-path "~/source/repos/org-bootstrap-publish")
+   (require 'org-bootstrap-publish)
+   #+end_src
+2. Point it at the source and a scratch output dir:
+   #+begin_src elisp
+   (setq org-bootstrap-publish-source-file  "~/publish/hugo-unified/README.org"
+         org-bootstrap-publish-output-dir   "~/publish/obp-out/public"
+         org-bootstrap-publish-site-title   "Emacs Dwelling"
+         org-bootstrap-publish-site-tagline "Emacs notes from James Dyer"
+         org-bootstrap-publish-site-url     "https://emacs.dyerdwelling.family/"
+         org-bootstrap-publish-author       "James Dyer")
+   #+end_src
+3. Build and preview:
+   #+begin_src elisp
+   M-x org-bootstrap-publish        ; writes ~/publish/obp-out/public
+   M-x org-bootstrap-publish-serve  ; python3 -m http.server + live rebuild on save
+   #+end_src
+4. Walk the major page types and check each renders cleanly:
+   - index (post cards + pagination)
+   - a post page
+   - a tag page
+   - =/tags/= cloud
+   - =/archive.html=
+   - =/feed.xml=
+   - a static asset referenced from a post
+
+=-serve= installs a buffer-local =after-save-hook= on =README.org=, so editing a heading and =C-x C-s= rebuilds just that post plus the listings (~1 second).  =M-x org-bootstrap-publish-stop= kills the server and removes the hook.
+
+* Content review
+
+A few things to tidy up in =README.org= while you are previewing:
+
+- Mark every heading you want published as =DONE=.  TODO headings (and anything tagged =:noexport:=) are skipped.
+- Confirm every heading has =EXPORT_FILE_NAME= — that becomes the slug under =posts/=.
+- Image paths use =static/…=; the builder rewrites these to =${site-path}static/…= automatically.
+- Code-block languages should match highlight.js keys (=elisp=, =sh=, =bash=, =python=, etc.) for syntax colouring.
+
+* Deploy option A — GitHub Actions (recommended)
+
+If you are already on GitHub Pages, the least-intrusive path is to replace =hugo.yml= with the packaged workflow.
+
+1. Copy the template:
+   #+begin_src sh
+   cp ~/source/repos/org-bootstrap-publish/workflows/pages.yml \
+      ~/publish/hugo-unified/.github/workflows/pages.yml
+   #+end_src
+2. Edit =on.push.paths= so the workflow only fires for files that actually affect the new build.  For the emacs site:
+   #+begin_src yaml
+   paths:
+     - 'README.org'
+     - 'static/**'
+     - 'assets/**'
+     - '.github/workflows/pages.yml'
+   #+end_src
+3. Disable the old workflow.  Either delete =hugo.yml= or rename it to =hugo.yml.disabled= so GitHub ignores it.
+4. Commit, push, and watch the Actions tab.  The =configure-pages= step supplies =base_url=; the workflow feeds that to =org-bootstrap-publish-site-url= so internal links resolve correctly whether the site lives at =example.github.io= or a custom domain.
+5. In the repo's *Settings → Pages*, make sure the source is set to *GitHub Actions* (not "Deploy from a branch").
+6. The custom domain (=emacs.dyerdwelling.family=) continues to work as long as the *Settings → Pages → Custom domain* value is still set.  No =CNAME= file is required — GitHub writes one into the artifact.
+
+* Deploy option B — local build + push
+
+If you would rather not run Emacs on CI, build locally and push the =public/= tree to a deploy branch.
+
+1. Clone a second worktree of the repo pinned to the deploy branch:
+   #+begin_src sh
+   git worktree add ../hugo-unified-deploy gh-pages
+   #+end_src
+2. Configure the publish target:
+   #+begin_src elisp
+   (setq org-bootstrap-publish-deploy-dir
+         "~/publish/hugo-unified-deploy"
+         org-bootstrap-publish-deploy-remote "origin"
+         org-bootstrap-publish-deploy-branch "gh-pages")
+   #+end_src
+3. Publish:
+   #+begin_src elisp
+   M-x org-bootstrap-publish-publish
+   #+end_src
+   That builds into =public/=, rsyncs into the worktree, commits, and pushes.  A =.nojekyll= file is written so GitHub does not strip underscore-prefixed paths.
+4. In *Settings → Pages*, set the source to *Deploy from a branch* and pick =gh-pages / (root)=.
+
+* Cutover
+
+1. Stage the new build on a throwaway repo or subpath first if you want to compare side-by-side.
+2. When happy, push to =main= (option A) or =gh-pages= (option B).
+3. DNS / CNAME for =emacs.dyerdwelling.family= does not need to change — GitHub Pages keeps serving the same host, only the artefact behind it is different.
+4. After the first deploy, hard-refresh the browser (CSS filenames are the same so cached styles can linger).
+
+* Rollback
+
+The old Hugo workflow still works.  To revert:
+
+- Option A: restore =hugo.yml= (or rename =hugo.yml.disabled= back) and delete =pages.yml=.  Push.  Hugo takes over on the next push.
+- Option B: re-run =hugo --minify= locally and push the resulting =public/= to =gh-pages=, then flip *Settings → Pages* back if you changed it.
+
+Because =README.org= is unchanged, no content migration is needed in either direction.
+
+* What you lose, what you gain
+
+Lose:
+- Hugo shortcodes (the package ignores any custom shortcodes; plain Org markup renders fine).
+- Hyde-as-a-theme upstream — styling now lives in =assets/style.css= and travels with the package.
+- Per-section config (the package treats the whole file as one section; use tags to carve it up).
+
+Gain:
+- One dependency (Emacs) instead of two (Emacs + Hugo).
+- Live-rebuild on save against the Org source.
+- The entire pipeline is elisp, so everything — the card template, the feed, the tag pages — is hackable from inside Emacs.

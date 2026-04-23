@@ -1,0 +1,94 @@
+#+title: org-bootstrap-publish
+#+author: James Dyer
+#+options: toc:nil
+
+Generate a Bootstrap 5 static site from a single Org file.  Each top-level heading becomes a post.  Output is a =public/= folder that can be uploaded to any static host (Cloudflare Pages, Netlify, GitHub Pages, plain S3, etc.).
+
+* Features
+
+- Index page with responsive Bootstrap 5 post cards.
+- One HTML page per post, rendered via =ox-html=.
+- One HTML page per tag, plus a tag-cloud index.
+- Atom feed at =feed.xml=.
+- Hyde-style left sidebar with site title, tagline, nav, and byline.
+- Optional highlight.js code-block highlighting (CDN, opt-out).
+- Recognises =EXPORT_FILE_NAME=, =EXPORT_HUGO_SECTION=, =EXPORT_HUGO_LASTMOD=, and the =:thumbnail= key inside =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= so an ox-hugo source file works unchanged.
+
+* Install
+
+Drop the directory on your =load-path=:
+
+#+begin_src elisp
+(add-to-list 'load-path "~/source/repos/org-bootstrap-publish")
+(require 'org-bootstrap-publish)
+#+end_src
+
+* Usage
+
+Configure once per site, then call =M-x org-bootstrap-publish=:
+
+#+begin_src elisp
+(setq org-bootstrap-publish-source-file "~/publish/hugo-unified/README.org"
+      org-bootstrap-publish-output-dir  "~/publish/obp-out/public"
+      org-bootstrap-publish-site-title  "Emacs Dwelling"
+      org-bootstrap-publish-site-tagline "Emacs notes from James Dyer"
+      org-bootstrap-publish-site-url    "https://emacs.dyerdwelling.family/"
+      org-bootstrap-publish-author      "James Dyer")
+#+end_src
+
+Or run it from the command line:
+
+#+begin_src sh
+emacs --batch \
+  -L ~/source/repos/org-bootstrap-publish \
+  -l org-bootstrap-publish \
+  --eval "(progn
+    (setq org-bootstrap-publish-source-file \"/path/to/README.org\")
+    (setq org-bootstrap-publish-output-dir  \"./public\")
+    (setq org-bootstrap-publish-site-title  \"My Site\")
+    (org-bootstrap-publish))"
+#+end_src
+
+* Customization
+
+| Variable                                      | Meaning                                            |
+|-----------------------------------------------+----------------------------------------------------|
+| =org-bootstrap-publish-source-file=           | The Org file to publish.                           |
+| =org-bootstrap-publish-output-dir=            | Output directory (default =public/= under pwd).    |
+| =org-bootstrap-publish-site-title=            | Sidebar title.                                     |
+| =org-bootstrap-publish-site-tagline=          | Sidebar sub-title.                                 |
+| =org-bootstrap-publish-site-url=              | Canonical URL, used in the Atom feed.              |
+| =org-bootstrap-publish-site-path=             | URL prefix (=/= for root, =/repo/= for subpath).   |
+| =org-bootstrap-publish-author=                | Author name.                                       |
+| =org-bootstrap-publish-posts-per-page=        | How many posts appear on the index page.           |
+| =org-bootstrap-publish-exclude-tags=          | Tags that skip a heading (default =("noexport")=). |
+| =org-bootstrap-publish-static-dirs=           | Dirs copied verbatim next to the source file.      |
+| =org-bootstrap-publish-bootstrap-css= / =-js= | Bootstrap 5 CDN URLs (override to vendor).         |
+| =org-bootstrap-publish-highlight-css= / =-js= | highlight.js CDN URLs (nil to disable).            |
+
+* Post properties
+
+The package reads these properties from each heading's drawer:
+
+| Property                           | Use                                           |
+|------------------------------------+-----------------------------------------------|
+| =EXPORT_FILE_NAME=                 | Slug (filename under =posts/=).               |
+| =EXPORT_HUGO_SECTION=              | Section label (informational).                |
+| =EXPORT_HUGO_LASTMOD=              | Post timestamp.  Parses =<YYYY-MM-DD HH:MM>=. |
+| =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= | =:thumbnail /emacs/foo.jpg= → card image.     |
+
+Heading tags become tag pages.  The =noexport= tag skips a heading.
+
+* Preview
+
+After a build, serve the =public/= folder:
+
+#+begin_src sh
+cd public && python3 -m http.server 8080
+#+end_src
+
+* Deploy
+
+- Cloudflare Pages: =wrangler pages deploy public=
+- Netlify:          drag-drop =public/=, or =netlify deploy --prod --dir public=
+- GitHub Pages:     commit =public/= on a =gh-pages= branch
