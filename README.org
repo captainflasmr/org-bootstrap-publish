@@ -9,7 +9,7 @@ Generate a Bootstrap 5 static site from a single Org file.  Each top-level headi
 - Index page with responsive Bootstrap 5 post cards.
 - One HTML page per post, rendered via =ox-html=.
 - One HTML page per tag, plus a tag-cloud index.
-- Atom feed at =feed.xml=.
+- Atom feed at =index.xml= (also mirrored to =feed.xml=).
 - Hyde-style left sidebar with site title, tagline, nav, and byline.
 - Optional highlight.js code-block highlighting (CDN, opt-out).
 - Recognises =EXPORT_FILE_NAME=, =EXPORT_HUGO_SECTION=, =EXPORT_HUGO_LASTMOD=, and the =:thumbnail= key inside =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= so an ox-hugo source file works unchanged.
@@ -72,7 +72,7 @@ The package reads these properties from each heading's drawer:
 
 | Property                           | Use                                           |
 |------------------------------------+-----------------------------------------------|
-| =EXPORT_FILE_NAME=                 | Slug (filename under =posts/=).               |
+| =EXPORT_FILE_NAME=                 | Post slug (lowercased; used as URL segment).  |
 | =EXPORT_HUGO_SECTION=              | Section label (informational).                |
 | =EXPORT_HUGO_LASTMOD=              | Post timestamp.  Parses =<YYYY-MM-DD HH:MM>=. |
 | =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= | =:thumbnail /emacs/foo.jpg= → card image.     |

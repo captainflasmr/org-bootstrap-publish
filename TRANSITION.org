@@ -45,7 +45,7 @@ Before touching the live site, run the new builder against the Org file and insp
    - a tag page
    - =/tags/= cloud
    - =/archive.html=
-   - =/feed.xml=
+   - =/index.xml= (Atom feed; also mirrored at =/feed.xml=)
    - a static asset referenced from a post
 
 =-serve= installs a buffer-local =after-save-hook= on =README.org=, so editing a heading and =C-x C-s= rebuilds just that post plus the listings (~1 second).  =M-x org-bootstrap-publish-stop= kills the server and removes the hook.
@@ -55,7 +55,7 @@ Before touching the live site, run the new builder against the Org file and insp
 A few things to tidy up in =README.org= while you are previewing:
 
 - Mark every heading you want published as =DONE=.  TODO headings (and anything tagged =:noexport:=) are skipped.
-- Confirm every heading has =EXPORT_FILE_NAME= — that becomes the slug under =posts/=.
+- Confirm every heading has =EXPORT_FILE_NAME= — that becomes the URL slug (lowercased).  If =EXPORT_HUGO_SECTION= is set (e.g. =emacs=), the post lives at =/<section>/<slug>/=, matching Hugo's default pretty permalinks so existing RSS subscribers keep their GUIDs.
 - Image paths use =static/…=; the builder rewrites these to =${site-path}static/…= automatically.
 - Code-block languages should match highlight.js keys (=elisp=, =sh=, =bash=, =python=, etc.) for syntax colouring.
 

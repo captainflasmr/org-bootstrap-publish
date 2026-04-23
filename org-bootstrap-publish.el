@@ -20,7 +20,7 @@
 ;;   - Index page with post cards, newest first.
 ;;   - One HTML page per post (rendered via `ox-html').
 ;;   - One HTML page per tag, plus an overall tags index.
-;;   - Atom feed at feed.xml.
+;;   - Atom feed at index.xml (also mirrored to feed.xml).
 ;;   - Custom stylesheet copied into public/assets/.
 ;;
 ;; Recognised heading properties (compatible with ox-hugo):
@@ -201,8 +201,9 @@ No `git worktree' or anything fancy required -- a plain
       (match-string 1 cfm))))
 
 (defun org-bootstrap-publish--slug (title props)
-  (or (cdr (assoc "EXPORT_FILE_NAME" props))
-      (org-bootstrap-publish--slugify title)))
+  (downcase
+   (or (cdr (assoc "EXPORT_FILE_NAME" props))
+       (org-bootstrap-publish--slugify title))))
 
 (defun org-bootstrap-publish--summary (body-org)
   (cond
@@ -331,8 +332,16 @@ No `git worktree' or anything fancy required -- a plain
 (defun org-bootstrap-publish--url (&rest parts)
   (apply #'concat org-bootstrap-publish-site-path parts))
 
+(defun org-bootstrap-publish--post-path (post)
+  "Relative URL path (no leading slash) to POST's directory."
+  (let ((section (plist-get post :section))
+        (slug (plist-get post :slug)))
+    (if (and section (not (string-empty-p section)))
+        (concat section "/" slug "/")
+      (concat slug "/"))))
+
 (defun org-bootstrap-publish--post-url (post)
-  (org-bootstrap-publish--url "posts/" (plist-get post :slug) ".html"))
+  (org-bootstrap-publish--url (org-bootstrap-publish--post-path post)))
 
 (defun org-bootstrap-publish--tag-url (tag)
   (org-bootstrap-publish--url "tags/" (org-bootstrap-publish--slugify tag) ".html"))
@@ -374,7 +383,7 @@ No `git worktree' or anything fancy required -- a plain
      (format "<link rel=\"stylesheet\" href=\"%s\">\n"
              (org-bootstrap-publish--url "assets/style.css"))
      (format "<link rel=\"alternate\" type=\"application/atom+xml\" href=\"%s\" title=\"%s\">\n"
-             (org-bootstrap-publish--url "feed.xml") site)
+             (org-bootstrap-publish--url "index.xml") site)
      "</head>\n"
      "<body>\n"
      "<div class=\"site\">\n"
@@ -392,7 +401,7 @@ No `git worktree' or anything fancy required -- a plain
      (format "        <li><a href=\"%s\">Tags</a></li>\n"
              (org-bootstrap-publish--url "tags.html"))
      (format "        <li><a href=\"%s\">RSS</a></li>\n"
-             (org-bootstrap-publish--url "feed.xml"))
+             (org-bootstrap-publish--url "index.xml"))
      "      </ul></nav>\n"
      (format "      <p class=\"sidebar-footer\">&copy; %s %s</p>\n" year author)
      "    </div>\n"
@@ -560,7 +569,7 @@ No `git worktree' or anything fancy required -- a plain
          (entries
           (mapconcat
            (lambda (p)
-             (let* ((link (concat url "posts/" (plist-get p :slug) ".html"))
+             (let* ((link (concat url (org-bootstrap-publish--post-path p)))
                     (date (org-bootstrap-publish--iso
                            (or (plist-get p :date) (current-time))))
                     (title (org-bootstrap-publish--escape (plist-get p :title)))
@@ -582,7 +591,7 @@ No `git worktree' or anything fancy required -- a plain
      (format "<title>%s</title>\n"
              (org-bootstrap-publish--escape org-bootstrap-publish-site-title))
      (format "<link href=\"%s\"/>\n" url)
-     (format "<link rel=\"self\" href=\"%sfeed.xml\"/>\n" url)
+     (format "<link rel=\"self\" href=\"%sindex.xml\"/>\n" url)
      (format "<id>%s</id>\n" url)
      (format "<updated>%s</updated>\n" updated)
      (format "<author><name>%s</name></author>\n"
@@ -629,7 +638,8 @@ No `git worktree' or anything fancy required -- a plain
 
 (defun org-bootstrap-publish--write-post (post out)
   (org-bootstrap-publish--write
-   (expand-file-name (concat "posts/" (plist-get post :slug) ".html") out)
+   (expand-file-name
+    (concat (org-bootstrap-publish--post-path post) "index.html") out)
    (org-bootstrap-publish--page
     (format "%s | %s"
             (plist-get post :title)
@@ -661,9 +671,11 @@ No `git worktree' or anything fancy required -- a plain
    (org-bootstrap-publish--page
     (format "Tags | %s" org-bootstrap-publish-site-title)
     (org-bootstrap-publish--render-tags-index tag-counts)))
-  (org-bootstrap-publish--write
-   (expand-file-name "feed.xml" out)
-   (org-bootstrap-publish--feed posts)))
+  (let ((feed (org-bootstrap-publish--feed posts)))
+    (org-bootstrap-publish--write
+     (expand-file-name "index.xml" out) feed)
+    (org-bootstrap-publish--write
+     (expand-file-name "feed.xml" out) feed)))
 
 ;;;###autoload
 (defun org-bootstrap-publish (&optional source-file output-dir)
