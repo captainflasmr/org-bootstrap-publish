@@ -322,6 +322,8 @@ No `git worktree' or anything fancy required -- a plain
           (org-export-with-section-numbers nil)
           (org-export-with-broken-links t)
           (org-export-with-sub-superscripts '{})
+          (org-export-use-babel nil)
+          (org-confirm-babel-evaluate nil)
           (org-html-htmlize-output-type nil)
           (org-html-container-element "section")
           (inhibit-message t))
@@ -852,6 +854,130 @@ current org buffer) and `org-bootstrap-publish-output-dir'."
     (message "org-bootstrap-publish: wrote %d posts and %d tags to %s"
              (length posts) (length tag-counts) out)))
 
+;;;; Async build
+
+(defvar org-bootstrap-publish--async-process nil
+  "Running async build subprocess, or nil.")
+
+(defvar org-bootstrap-publish--async-buffer-name "*obp-build*"
+  "Name of the buffer that captures stdout+stderr of the async build.")
+
+(defconst org-bootstrap-publish--async-vars
+  '(org-bootstrap-publish-site-title
+    org-bootstrap-publish-site-tagline
+    org-bootstrap-publish-site-url
+    org-bootstrap-publish-site-path
+    org-bootstrap-publish-author
+    org-bootstrap-publish-posts-per-page
+    org-bootstrap-publish-exclude-tags
+    org-bootstrap-publish-static-dirs
+    org-bootstrap-publish-bootstrap-css
+    org-bootstrap-publish-bootstrap-js
+    org-bootstrap-publish-highlight-css
+    org-bootstrap-publish-highlight-js
+    org-bootstrap-publish-publish-todo-states
+    org-bootstrap-publish-asset-file)
+  "Customisation vars propagated to the async build subprocess.")
+
+(defun org-bootstrap-publish--library-dir ()
+  "Directory containing this library's `.el' file."
+  (file-name-directory
+   (or (symbol-file 'org-bootstrap-publish)
+       (locate-library "org-bootstrap-publish")
+       (user-error "Cannot locate org-bootstrap-publish on load-path"))))
+
+(defun org-bootstrap-publish--async-eval-form (src out)
+  "Build the `--eval' string run inside the child Emacs.
+Replays every custom in `org-bootstrap-publish--async-vars' then
+invokes the synchronous entry point against SRC and OUT."
+  (format "(progn %s (org-bootstrap-publish %S %S))"
+          (mapconcat (lambda (v)
+                       (format "(setq %s '%S)" v (symbol-value v)))
+                     org-bootstrap-publish--async-vars
+                     " ")
+          src out))
+
+(defun org-bootstrap-publish--async-filter (proc string)
+  "Append STRING to PROC's buffer and surface progress lines."
+  (let ((buf (process-buffer proc)))
+    (when (buffer-live-p buf)
+      (with-current-buffer buf
+        (goto-char (point-max))
+        (insert string))))
+  (dolist (line (split-string string "\n" t))
+    (when (string-match-p "\\`org-bootstrap-publish:" line)
+      (message "%s" line))))
+
+(defun org-bootstrap-publish--async-sentinel (proc _event)
+  (when (memq (process-status proc) '(exit signal))
+    (let ((rc (process-exit-status proc))
+          (callback (process-get proc 'obp-callback))
+          (t0       (process-get proc 'obp-start-time)))
+      (setq org-bootstrap-publish--async-process nil)
+      (cond
+       ((zerop rc)
+        (message "org-bootstrap-publish: build complete (%.1fs)"
+                 (- (float-time) t0))
+        (when callback (funcall callback nil)))
+       (t
+        (message "org-bootstrap-publish: build FAILED (exit %d) — see %s"
+                 rc org-bootstrap-publish--async-buffer-name)
+        (when callback (funcall callback (format "exit %d" rc))))))))
+
+;;;###autoload
+(defun org-bootstrap-publish-async (&optional source-file output-dir callback)
+  "Build the site asynchronously in a child `emacs --batch' subprocess.
+SOURCE-FILE and OUTPUT-DIR default to the configured customs.
+CALLBACK, if non-nil, is called on completion with nil on success
+or an error string on failure.  Progress is streamed to the echo
+area; full subprocess output lives in buffer
+`org-bootstrap-publish--async-buffer-name'."
+  (interactive)
+  (when (process-live-p org-bootstrap-publish--async-process)
+    (user-error "An async build is already running"))
+  (let* ((src (or source-file
+                  org-bootstrap-publish-source-file
+                  (and (derived-mode-p 'org-mode) buffer-file-name)
+                  (user-error "Set `org-bootstrap-publish-source-file' first")))
+         (out (or output-dir
+                  org-bootstrap-publish-output-dir
+                  (user-error "Set `org-bootstrap-publish-output-dir' first")))
+         (pkg-dir (org-bootstrap-publish--library-dir))
+         (buf (get-buffer-create org-bootstrap-publish--async-buffer-name))
+         (emacs (expand-file-name invocation-name invocation-directory))
+         (eval-form (org-bootstrap-publish--async-eval-form
+                     (expand-file-name src)
+                     (expand-file-name out))))
+    (with-current-buffer buf
+      (erase-buffer)
+      (insert (format "$ %s --batch -Q -L %s -l org-bootstrap-publish \\\n  --eval %s\n\n"
+                      emacs pkg-dir eval-form)))
+    (message "org-bootstrap-publish: starting async build...")
+    (let ((proc
+           (make-process
+            :name "obp-build"
+            :buffer buf
+            :command (list emacs "--batch" "-Q"
+                           "-L" pkg-dir
+                           "-l" "org-bootstrap-publish"
+                           "--eval" eval-form)
+            :filter #'org-bootstrap-publish--async-filter
+            :sentinel #'org-bootstrap-publish--async-sentinel
+            :connection-type 'pipe)))
+      (process-put proc 'obp-callback callback)
+      (process-put proc 'obp-start-time (float-time))
+      (set-process-query-on-exit-flag proc nil)
+      (setq org-bootstrap-publish--async-process proc))))
+
+;;;###autoload
+(defun org-bootstrap-publish-async-abort ()
+  "Abort the currently running async build, if any."
+  (interactive)
+  (if (process-live-p org-bootstrap-publish--async-process)
+      (progn (delete-process org-bootstrap-publish--async-process)
+             (message "org-bootstrap-publish: async build aborted"))
+    (message "org-bootstrap-publish: no async build running")))
+
 ;;;; Dev server
 
 (defcustom org-bootstrap-publish-serve-port 8080
@@ -913,15 +1039,27 @@ Intended as an `after-save-hook' while editing the source file."
              (if target (format "'%s' " title) "")
              (- (float-time) t0))))
 
+(defun org-bootstrap-publish--start-http-server (out port)
+  "Spawn `python3 -m http.server' in OUT on PORT and record the process."
+  (setq org-bootstrap-publish--server-process
+        (start-process "obp-serve" "*obp-serve*"
+                       "python3" "-m" "http.server"
+                       "--directory" (expand-file-name out)
+                       (number-to-string port)))
+  (set-process-query-on-exit-flag
+   org-bootstrap-publish--server-process nil))
+
 ;;;###autoload
 (defun org-bootstrap-publish-serve (&optional port)
   "Build the site, serve it locally, and rebuild on save.
-Runs `python3 -m http.server' in the output directory on PORT
-(default `org-bootstrap-publish-serve-port'), opens the page in a
-browser, and installs an `after-save-hook' on the source file's
-buffer (visiting it if necessary) so saves trigger an incremental
-rebuild.  Also registers a `find-file-hook' so later visits of the
-source file pick up the hook."
+Kicks off an asynchronous full build via
+`org-bootstrap-publish-async', then — once that finishes — runs
+`python3 -m http.server' on PORT (default
+`org-bootstrap-publish-serve-port'), opens the page in a browser,
+and installs an `after-save-hook' on the source file's buffer so
+saves trigger an incremental (synchronous, fast) rebuild.  Also
+registers a `find-file-hook' so later visits of the source file
+pick up the hook."
   (interactive (list (when current-prefix-arg
                        (read-number "Port: "
                                     org-bootstrap-publish-serve-port))))
@@ -937,28 +1075,30 @@ source file pick up the hook."
       (user-error "Server already running; call `org-bootstrap-publish-stop' first"))
     (unless (executable-find "python3")
       (user-error "python3 not found on PATH"))
-    (org-bootstrap-publish src out)
-    (setq org-bootstrap-publish--server-process
-          (start-process "obp-serve" "*obp-serve*"
-                         "python3" "-m" "http.server"
-                         "--directory" (expand-file-name out)
-                         (number-to-string port)))
-    (set-process-query-on-exit-flag
-     org-bootstrap-publish--server-process nil)
-    (add-hook 'find-file-hook
-              #'org-bootstrap-publish--install-save-hook)
-    (let ((buf (find-file-noselect src)))
-      (with-current-buffer buf
-        (add-hook 'after-save-hook
-                  #'org-bootstrap-publish-rebuild-current-post nil t))
-      (browse-url (format "http://localhost:%d/" port))
-      (message "org-bootstrap-publish-serve: serving %s on :%d; rebuild hook on %s (stop with M-x org-bootstrap-publish-stop)"
-               out port (buffer-name buf)))))
+    (org-bootstrap-publish-async
+     src out
+     (lambda (err)
+       (if err
+           (message "org-bootstrap-publish-serve: build failed (%s); server not started" err)
+         (org-bootstrap-publish--start-http-server out port)
+         (add-hook 'find-file-hook
+                   #'org-bootstrap-publish--install-save-hook)
+         (let ((buf (find-file-noselect src)))
+           (with-current-buffer buf
+             (add-hook 'after-save-hook
+                       #'org-bootstrap-publish-rebuild-current-post nil t))
+           (browse-url (format "http://localhost:%d/" port))
+           (message "org-bootstrap-publish-serve: serving %s on :%d; rebuild hook on %s (stop with M-x org-bootstrap-publish-stop)"
+                    out port (buffer-name buf))))))))
 
 ;;;###autoload
 (defun org-bootstrap-publish-stop ()
-  "Stop the dev HTTP server and disable rebuild-on-save."
+  "Stop the dev HTTP server and disable rebuild-on-save.
+Also aborts any running async build."
   (interactive)
+  (when (process-live-p org-bootstrap-publish--async-process)
+    (delete-process org-bootstrap-publish--async-process)
+    (setq org-bootstrap-publish--async-process nil))
   (when (process-live-p org-bootstrap-publish--server-process)
     (delete-process org-bootstrap-publish--server-process))
   (setq org-bootstrap-publish--server-process nil)
