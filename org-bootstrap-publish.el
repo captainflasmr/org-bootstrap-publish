@@ -34,6 +34,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'json)
 (require 'org)
 (require 'org-element)
 (require 'ox-html)
@@ -397,6 +398,11 @@ No `git worktree' or anything fancy required -- a plain
              (org-bootstrap-publish--url "index.html") site)
      (if (string-empty-p tagline) ""
        (format "      <p class=\"site-tagline\">%s</p>\n" tagline))
+     (format "      <div class=\"search-widget\" data-index-url=\"%s\">\n"
+             (org-bootstrap-publish--url "index.json"))
+     "        <input type=\"search\" id=\"search-input\" placeholder=\"Search articles&hellip;\" autocomplete=\"off\" aria-label=\"Search articles\" aria-controls=\"search-results\" aria-expanded=\"false\">\n"
+     "        <ul id=\"search-results\" class=\"search-results\" role=\"listbox\" hidden></ul>\n"
+     "      </div>\n"
      "      <nav class=\"sidebar-nav\"><ul class=\"list-unstyled\">\n"
      (format "        <li><a href=\"%s\">Home</a></li>\n"
              (org-bootstrap-publish--url "index.html"))
@@ -420,6 +426,8 @@ No `git worktree' or anything fancy required -- a plain
      (when hl-js
        (concat (format "<script src=\"%s\"></script>\n" hl-js)
                "<script>hljs.highlightAll();</script>\n"))
+     (format "<script src=\"%s\" defer></script>\n"
+             (org-bootstrap-publish--url "assets/search.js"))
      "</body>\n"
      "</html>\n")))
 
@@ -613,6 +621,120 @@ see stable identifiers."
      entries
      "</feed>\n")))
 
+;;;; Search index
+
+(defun org-bootstrap-publish--index-json (posts)
+  "Serialise POSTS as a JSON array for the client-side search widget."
+  (let ((site (or org-bootstrap-publish-site-url "")))
+    (json-encode
+     (apply
+      #'vector
+      (mapcar
+       (lambda (p)
+         (let* ((summary (or (plist-get p :summary) ""))
+                (plain   (replace-regexp-in-string
+                          "[ \t\n]+" " "
+                          (replace-regexp-in-string
+                           "[*/=~_]" "" summary)))
+                (trimmed (if (> (length plain) 200)
+                             (substring plain 0 200)
+                           plain))
+                (date    (org-bootstrap-publish--human-date
+                          (plist-get p :date))))
+           `((title     . ,(plist-get p :title))
+             (permalink . ,(concat site
+                                   (org-bootstrap-publish--post-path p)))
+             (summary   . ,trimmed)
+             (tags      . ,(apply #'vector (plist-get p :tags)))
+             (section   . ,(or (plist-get p :section) ""))
+             (date      . ,(or date "")))))
+       posts)))))
+
+(defconst org-bootstrap-publish--search-js
+  "(function () {
+  var widget = document.querySelector('.search-widget');
+  var input = document.getElementById('search-input');
+  var results = document.getElementById('search-results');
+  if (!widget || !input || !results) return;
+
+  var indexUrl = widget.dataset.indexUrl;
+  var index = null, loading = null, activeIdx = -1;
+
+  function loadIndex() {
+    if (index) return Promise.resolve(index);
+    if (loading) return loading;
+    loading = fetch(indexUrl, { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (d) { index = Array.isArray(d) ? d : []; return index; })
+      .catch(function () { index = []; return index; });
+    return loading;
+  }
+  function esc(s) {
+    return (s == null ? '' : String(s)).replace(/[&<>\"']/g, function (c) {
+      return ({ '&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;' })[c];
+    });
+  }
+  function render(matches) {
+    activeIdx = -1;
+    if (!matches.length) {
+      results.innerHTML = '<li class=\"search-empty\">No matches</li>';
+      results.hidden = false; input.setAttribute('aria-expanded','true'); return;
+    }
+    var shown = matches.slice(0, 12);
+    results.innerHTML = shown.map(function (m) {
+      var tags = (m.tags || []).join(', ');
+      var meta = [m.section, tags, m.date].filter(Boolean).join(' \\u00b7 ');
+      return '<li role=\"option\"><a href=\"' + esc(m.permalink) + '\">' +
+        '<span class=\"search-title\">' + esc(m.title) + '</span>' +
+        (meta ? '<span class=\"search-meta\">' + esc(meta) + '</span>' : '') +
+        '</a></li>';
+    }).join('');
+    results.hidden = false; input.setAttribute('aria-expanded','true');
+  }
+  function hide() { results.hidden = true; input.setAttribute('aria-expanded','false'); activeIdx = -1; }
+  function search(q) {
+    q = q.trim().toLowerCase();
+    if (!q) { hide(); results.innerHTML=''; return; }
+    loadIndex().then(function (data) {
+      var terms = q.split(/\\s+/).filter(Boolean);
+      var matches = data.filter(function (e) {
+        var hay = [e.title, e.summary, (e.tags||[]).join(' '), e.section].join(' ').toLowerCase();
+        return terms.every(function (t) { return hay.indexOf(t) !== -1; });
+      });
+      render(matches);
+    });
+  }
+  function setActive(next) {
+    var items = results.querySelectorAll('li[role=\"option\"]');
+    if (!items.length) return;
+    if (activeIdx >= 0 && items[activeIdx]) items[activeIdx].classList.remove('active');
+    activeIdx = (next + items.length) % items.length;
+    items[activeIdx].classList.add('active');
+    items[activeIdx].scrollIntoView({ block: 'nearest' });
+  }
+  var timer;
+  input.addEventListener('input', function (e) {
+    clearTimeout(timer); var val = e.target.value;
+    timer = setTimeout(function () { search(val); }, 120);
+  });
+  input.addEventListener('focus', function () { if (input.value.trim()) search(input.value); });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { input.value=''; hide(); input.blur(); return; }
+    if (results.hidden) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(activeIdx + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(activeIdx - 1); }
+    else if (e.key === 'Enter') {
+      var items = results.querySelectorAll('li[role=\"option\"] a');
+      if (activeIdx >= 0 && items[activeIdx]) { e.preventDefault(); window.location = items[activeIdx].href; }
+    }
+  });
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.search-widget')) hide();
+  });
+})();
+"
+  "Client-side search widget.  Written to assets/search.js.")
+
 ;;;; Output
 
 (defun org-bootstrap-publish--collect-tags (posts)
@@ -646,7 +768,10 @@ see stable identifiers."
     (when (and org-bootstrap-publish-asset-file
                (file-exists-p org-bootstrap-publish-asset-file))
       (copy-file org-bootstrap-publish-asset-file
-                 (expand-file-name "style.css" dst-dir) t))))
+                 (expand-file-name "style.css" dst-dir) t))
+    (org-bootstrap-publish--write
+     (expand-file-name "search.js" dst-dir)
+     org-bootstrap-publish--search-js)))
 
 ;;;; Entry point
 
@@ -695,7 +820,10 @@ see stable identifiers."
     (org-bootstrap-publish--write
      (expand-file-name "index.xml" out) feed)
     (org-bootstrap-publish--write
-     (expand-file-name "feed.xml" out) feed)))
+     (expand-file-name "feed.xml" out) feed))
+  (org-bootstrap-publish--write
+   (expand-file-name "index.json" out)
+   (org-bootstrap-publish--index-json posts)))
 
 ;;;###autoload
 (defun org-bootstrap-publish (&optional source-file output-dir)
