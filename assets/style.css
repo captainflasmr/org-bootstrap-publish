@@ -6,6 +6,28 @@
   --obp-sidebar-muted: #9a9a9a;
   --obp-accent: #ff6f3c;
   --obp-content-max: 780px;
+
+  --obp-body-bg: #fafafa;
+  --obp-body-fg: #222;
+  --obp-card-bg: #ffffff;
+  --obp-card-border: #e3e3e3;
+  --obp-card-title: #222;
+  --obp-inline-code-bg: #eee;
+  --obp-inline-code-fg: #c7254e;
+  --obp-blockquote-fg: #555;
+  --obp-link: #b5461c;
+}
+
+[data-bs-theme="dark"] {
+  --obp-body-bg: #1a1a1a;
+  --obp-body-fg: #e2e2e2;
+  --obp-card-bg: #262626;
+  --obp-card-border: #3a3a3a;
+  --obp-card-title: #f1f1f1;
+  --obp-inline-code-bg: #2c2c2c;
+  --obp-inline-code-fg: #ff8a80;
+  --obp-blockquote-fg: #a5a5a5;
+  --obp-link: #ff9a6b;
 }
 
 html, body { height: 100%; }
@@ -14,8 +36,8 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                "Helvetica Neue", Arial, sans-serif;
   line-height: 1.65;
-  color: #222;
-  background: #fafafa;
+  color: var(--obp-body-fg);
+  background: var(--obp-body-bg);
 }
 
 .site {
@@ -90,13 +112,15 @@ body {
 /* Post cards on index */
 .post-card {
   transition: transform 0.15s ease, box-shadow 0.15s ease;
-  border: 1px solid #e3e3e3;
+  background: var(--obp-card-bg);
+  border: 1px solid var(--obp-card-border);
+  color: var(--obp-body-fg);
 }
 .post-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.25);
 }
-.post-card .card-title a { color: #222; }
+.post-card .card-title a { color: var(--obp-card-title); }
 .post-card .card-title a:hover { color: var(--obp-accent); }
 .post-card .post-summary p { margin-bottom: 0.5rem; font-size: 0.95rem; }
 .post-card .post-summary :last-child { margin-bottom: 0; }
@@ -122,8 +146,8 @@ body {
   line-height: 1.5;
 }
 .post-body code {
-  background: #eee;
-  color: #c7254e;
+  background: var(--obp-inline-code-bg);
+  color: var(--obp-inline-code-fg);
   padding: 0.1rem 0.35rem;
   border-radius: 0.25rem;
   font-size: 0.92em;
@@ -137,11 +161,11 @@ body {
 .post-body img { margin: 1rem 0; }
 
 .post-body blockquote {
-  color: #555;
+  color: var(--obp-blockquote-fg);
   font-style: italic;
 }
 
-.post-body a { color: #b5461c; }
+.post-body a { color: var(--obp-link); }
 .post-body a:hover { color: var(--obp-accent); }
 
 /* Tag lists / cloud */
@@ -173,15 +197,16 @@ body {
   padding: 0;
   max-height: 60vh;
   overflow-y: auto;
-  background: #fff;
-  color: #222;
+  background: var(--obp-card-bg);
+  color: var(--obp-body-fg);
+  border: 1px solid var(--obp-card-border);
   border-radius: 4px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   position: absolute;
   left: 0; right: 0;
   z-index: 20;
 }
-.search-results li { border-bottom: 1px solid #eee; }
+.search-results li { border-bottom: 1px solid var(--obp-card-border); }
 .search-results li:last-child { border-bottom: 0; }
 .search-results li a {
   display: block;
@@ -190,15 +215,37 @@ body {
   color: inherit;
 }
 .search-results li a:hover,
-.search-results li.active a { background: #f4ede4; }
+.search-results li.active a { background: rgba(255, 111, 60, 0.12); }
 .search-results .search-title { display: block; font-weight: 600; font-size: 0.95rem; }
 .search-results .search-meta {
   display: block;
   font-size: 0.8rem;
-  color: #666;
+  color: var(--obp-blockquote-fg);
   margin-top: 0.15rem;
 }
-.search-results .search-empty { padding: 0.6rem 0.7rem; color: #666; font-style: italic; }
+.search-results .search-empty { padding: 0.6rem 0.7rem; color: var(--obp-blockquote-fg); font-style: italic; }
+
+/* Theme toggle button */
+.theme-toggle {
+  margin-top: 0.8rem;
+  background: transparent;
+  color: var(--obp-sidebar-fg);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  line-height: 1;
+}
+.theme-toggle:hover {
+  border-color: var(--obp-accent);
+  color: var(--obp-accent);
+}
+.theme-toggle .theme-toggle-label::before { content: "Light mode"; }
+[data-bs-theme="dark"] .theme-toggle .theme-toggle-label::before { content: "Dark mode"; }
 
 /* Responsive: collapse sidebar on top on small screens */
 @media (max-width: 768px) {

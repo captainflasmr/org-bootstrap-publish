@@ -391,6 +391,7 @@ No `git worktree' or anything fancy required -- a plain
              (org-bootstrap-publish--url "assets/style.css"))
      (format "<link rel=\"alternate\" type=\"application/atom+xml\" href=\"%s\" title=\"%s\">\n"
              (org-bootstrap-publish--url "index.xml") site)
+     "<script>(function(){var s=null;try{s=localStorage.getItem('obp-theme');}catch(e){}var p=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-bs-theme',s||p);})();</script>\n"
      "</head>\n"
      "<body>\n"
      "<div class=\"site\">\n"
@@ -415,6 +416,7 @@ No `git worktree' or anything fancy required -- a plain
      (format "        <li><a href=\"%s\">RSS</a></li>\n"
              (org-bootstrap-publish--url "index.xml"))
      "      </ul></nav>\n"
+     "      <button type=\"button\" class=\"theme-toggle\" aria-label=\"Toggle colour theme\"><span class=\"theme-toggle-label\"></span></button>\n"
      (format "      <p class=\"sidebar-footer\">&copy; %s %s</p>\n" year author)
      "    </div>\n"
      "  </aside>\n"
@@ -430,6 +432,7 @@ No `git worktree' or anything fancy required -- a plain
                "<script>hljs.highlightAll();</script>\n"))
      (format "<script src=\"%s\" defer></script>\n"
              (org-bootstrap-publish--url "assets/search.js"))
+     "<script>document.addEventListener('click',function(e){var b=e.target.closest('.theme-toggle');if(!b)return;var n=document.documentElement.getAttribute('data-bs-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-bs-theme',n);try{localStorage.setItem('obp-theme',n);}catch(_){}});</script>\n"
      "</body>\n"
      "</html>\n")))
 
@@ -787,27 +790,33 @@ see stable identifiers."
             org-bootstrap-publish-site-title)
     (org-bootstrap-publish--render-post post))))
 
-(defun org-bootstrap-publish--write-listings (posts tag-counts out)
+(defun org-bootstrap-publish--write-listings (posts tag-counts out &optional fast)
+  "Write non-post pages (index, tag pages, archive, feeds, search index).
+When FAST is non-nil, skip the expensive passes: per-tag HTML
+pages, per-tag feeds, and the site feed.  These embed fully
+exported post bodies and dominate rebuild time; they refresh on
+the next full build."
   (org-bootstrap-publish--write
    (expand-file-name "index.html" out)
    (org-bootstrap-publish--page
     org-bootstrap-publish-site-title
     (org-bootstrap-publish--render-index posts)))
-  (dolist (tc tag-counts)
-    (let* ((tag (car tc))
-           (tag-path (org-bootstrap-publish--tag-path tag))
-           (matching (org-bootstrap-publish--posts-with-tag tag posts)))
-      (org-bootstrap-publish--write
-       (expand-file-name (concat tag-path "index.html") out)
-       (org-bootstrap-publish--page
-        (format "#%s | %s" tag org-bootstrap-publish-site-title)
-        (org-bootstrap-publish--render-tag-page tag matching)))
-      (org-bootstrap-publish--write
-       (expand-file-name (concat tag-path "index.xml") out)
-       (org-bootstrap-publish--feed
-        matching
-        (format "%s on %s" tag org-bootstrap-publish-site-title)
-        tag-path))))
+  (unless fast
+    (dolist (tc tag-counts)
+      (let* ((tag (car tc))
+             (tag-path (org-bootstrap-publish--tag-path tag))
+             (matching (org-bootstrap-publish--posts-with-tag tag posts)))
+        (org-bootstrap-publish--write
+         (expand-file-name (concat tag-path "index.html") out)
+         (org-bootstrap-publish--page
+          (format "#%s | %s" tag org-bootstrap-publish-site-title)
+          (org-bootstrap-publish--render-tag-page tag matching)))
+        (org-bootstrap-publish--write
+         (expand-file-name (concat tag-path "index.xml") out)
+         (org-bootstrap-publish--feed
+          matching
+          (format "%s on %s" tag org-bootstrap-publish-site-title)
+          tag-path)))))
   (org-bootstrap-publish--write
    (expand-file-name "posts.html" out)
    (org-bootstrap-publish--page
@@ -818,11 +827,12 @@ see stable identifiers."
    (org-bootstrap-publish--page
     (format "Tags | %s" org-bootstrap-publish-site-title)
     (org-bootstrap-publish--render-tags-index tag-counts)))
-  (let ((feed (org-bootstrap-publish--feed posts)))
-    (org-bootstrap-publish--write
-     (expand-file-name "index.xml" out) feed)
-    (org-bootstrap-publish--write
-     (expand-file-name "feed.xml" out) feed))
+  (unless fast
+    (let ((feed (org-bootstrap-publish--feed posts)))
+      (org-bootstrap-publish--write
+       (expand-file-name "index.xml" out) feed)
+      (org-bootstrap-publish--write
+       (expand-file-name "feed.xml" out) feed)))
   (org-bootstrap-publish--write
    (expand-file-name "index.json" out)
    (org-bootstrap-publish--index-json posts)))
@@ -1034,8 +1044,9 @@ Intended as an `after-save-hook' while editing the source file."
          (t0 (float-time)))
     (when target
       (org-bootstrap-publish--write-post target out))
-    (org-bootstrap-publish--write-listings posts tag-counts out)
-    (message "org-bootstrap-publish: rebuilt %s+ listings (%.2fs)"
+    (org-bootstrap-publish--write-listings posts tag-counts out t)
+    (org-bootstrap-publish--copy-assets out)
+    (message "org-bootstrap-publish: rebuilt %s+ listings fast (%.2fs; run M-x org-bootstrap-publish-async for feeds/tag pages)"
              (if target (format "'%s' " title) "")
              (- (float-time) t0))))
 
