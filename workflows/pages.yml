@@ -60,7 +60,7 @@ jobs:
               (setq org-bootstrap-publish-source-file \"$GITHUB_WORKSPACE/README.org\")
               (setq org-bootstrap-publish-output-dir  \"$GITHUB_WORKSPACE/public\")
               (setq org-bootstrap-publish-site-title  \"Emacs Dwelling\")
-              (setq org-bootstrap-publish-site-tagline \"Emacs notes from James Dyer\")
+              (setq org-bootstrap-publish-site-tagline \"Journeying through the Emacs rabbit hole\")
               (setq org-bootstrap-publish-site-url    \"${{ steps.pages.outputs.base_url }}/\")
               (setq org-bootstrap-publish-site-path   \"${{ steps.pages.outputs.base_path }}/\")
               (setq org-bootstrap-publish-author      \"James Dyer\")
