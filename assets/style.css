@@ -5,7 +5,8 @@
   --obp-sidebar-fg: #e8e8e8;
   --obp-sidebar-muted: #9a9a9a;
   --obp-accent: #ff6f3c;
-  --obp-content-max: 780px;
+  --obp-content-max: 1100px;
+  --obp-reading-max: 780px;
 
   --obp-body-bg: #fafafa;
   --obp-body-fg: #222;
@@ -75,11 +76,14 @@ body {
 .site-tagline {
   color: var(--obp-sidebar-muted);
   font-size: 0.95rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.25rem;
 }
 
 .sidebar-nav ul { margin: 0; padding: 0; }
 .sidebar-nav li { margin-bottom: 0.4rem; }
+.sidebar-nav li.nav-tag { margin-left: 0.75rem; font-size: 0.95rem; }
+.sidebar-nav li.nav-tag a { color: var(--obp-sidebar-muted); }
+.sidebar-nav li.nav-tag a:hover { color: var(--obp-accent); }
 .sidebar-nav a {
   color: var(--obp-sidebar-fg);
   text-decoration: none;
@@ -115,17 +119,43 @@ body {
   background: var(--obp-card-bg);
   border: 1px solid var(--obp-card-border);
   color: var(--obp-body-fg);
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
+.post-card .card-body { padding: 0.65rem 0.8rem; }
 .post-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+}
+.post-card .card-title {
+  font-size: 1.02rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-bottom: 0.3rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .post-card .card-title a { color: var(--obp-card-title); }
 .post-card .card-title a:hover { color: var(--obp-accent); }
-.post-card .post-summary p { margin-bottom: 0.5rem; font-size: 0.95rem; }
+.post-card .card-subtitle { font-size: 0.8rem; margin-bottom: 0.35rem !important; }
+.post-card .post-summary {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.post-card .post-summary p { margin-bottom: 0.3rem; }
 .post-card .post-summary :last-child { margin-bottom: 0; }
+.post-card .card-img-top { aspect-ratio: 16 / 9; object-fit: cover; }
+.post-card .post-tags { margin-top: 0.45rem !important; }
+.post-card .post-tags .badge { font-size: 0.72rem; padding: 0.18em 0.5em; }
 
 /* Post body */
+.post { max-width: var(--obp-reading-max); margin: 0 auto; }
 .post-header h1 {
   font-size: 2rem;
   line-height: 1.25;
@@ -167,6 +197,49 @@ body {
 
 .post-body a { color: var(--obp-link); }
 .post-body a:hover { color: var(--obp-accent); }
+
+/* Index pagination — tie Bootstrap's pagination variables to our theme */
+.pagination {
+  --bs-pagination-color:             var(--obp-link);
+  --bs-pagination-bg:                var(--obp-card-bg);
+  --bs-pagination-border-color:      var(--obp-card-border);
+  --bs-pagination-hover-color:       var(--obp-accent);
+  --bs-pagination-hover-bg:          var(--obp-card-bg);
+  --bs-pagination-hover-border-color: var(--obp-accent);
+  --bs-pagination-focus-color:       var(--obp-accent);
+  --bs-pagination-focus-bg:          var(--obp-card-bg);
+  --bs-pagination-focus-box-shadow:  0 0 0 0.2rem rgba(255, 111, 60, 0.25);
+  --bs-pagination-active-color:      #fff;
+  --bs-pagination-active-bg:         var(--obp-accent);
+  --bs-pagination-active-border-color: var(--obp-accent);
+  --bs-pagination-disabled-color:    var(--obp-blockquote-fg);
+  --bs-pagination-disabled-bg:       var(--obp-card-bg);
+  --bs-pagination-disabled-border-color: var(--obp-card-border);
+}
+
+/* Prev/Next navigation at the bottom of each post */
+.post-nav {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--obp-card-border);
+}
+.post-nav a {
+  display: block;
+  text-decoration: none;
+  color: var(--obp-body-fg);
+}
+.post-nav a:hover { color: var(--obp-accent); }
+.post-nav .post-nav-label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--obp-blockquote-fg);
+  margin-bottom: 0.2rem;
+}
+.post-nav .post-nav-title {
+  display: block;
+  font-weight: 600;
+  line-height: 1.35;
+}
 
 /* Tag lists / cloud */
 .tag-cloud a { font-size: 0.95rem; }
@@ -257,5 +330,15 @@ body {
     padding: 1.5rem;
   }
   .content { padding: 1.5rem; }
-  .sidebar-footer { padding-top: 1rem; }
+  .sidebar { padding-bottom: 0.75rem; }
+  .site-tagline { margin-bottom: 0.5rem; }
+  .search-widget { margin: 0.5rem 0; }
+  .sidebar-footer { padding-top: 1rem; margin-bottom: 0; }
+  .sidebar-nav ul {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 1rem;
+  }
+  .sidebar-nav li { margin-bottom: 0.3rem; }
+  .sidebar-nav li.nav-tag { margin-left: 0; }
 }

@@ -88,6 +88,20 @@ Pages project site.  Must start and end with a slash."
   "Headings carrying any of these tags are skipped."
   :type '(repeat string))
 
+(defcustom org-bootstrap-publish-menu-tags nil
+  "Alist of (LABEL . TAG) pairs to promote into the sidebar nav.
+Each entry adds a link to TAG's page between the main nav items
+and the RSS link, so frequently-used tags are one click away.
+Alist order is preserved.
+
+Example:
+
+  (setq org-bootstrap-publish-menu-tags
+        \\='((\"Emacs\" . \"emacs\")
+          (\"Linux\" . \"linux\")))"
+  :type '(alist :key-type (string :tag "Label")
+                :value-type (string :tag "Tag")))
+
 (defcustom org-bootstrap-publish-publish-todo-states '("DONE")
   "TODO-keyword states whose headings are published.
 Headings with any other TODO keyword are skipped (treated as drafts).
@@ -413,6 +427,12 @@ No `git worktree' or anything fancy required -- a plain
              (org-bootstrap-publish--url "posts.html"))
      (format "        <li><a href=\"%s\">Tags</a></li>\n"
              (org-bootstrap-publish--url "tags.html"))
+     (mapconcat
+      (lambda (entry)
+        (format "        <li class=\"nav-tag\"><a href=\"%s\">%s</a></li>\n"
+                (org-bootstrap-publish--tag-url (cdr entry))
+                (org-bootstrap-publish--escape (car entry))))
+      org-bootstrap-publish-menu-tags "")
      (format "        <li><a href=\"%s\">RSS</a></li>\n"
              (org-bootstrap-publish--url "index.xml"))
      "      </ul></nav>\n"
@@ -447,40 +467,99 @@ No `git worktree' or anything fancy required -- a plain
          (summary-html
           (org-bootstrap-publish--org->html (plist-get post :summary))))
     (concat
-     "<div class=\"col-md-6 col-lg-4 mb-4\">\n"
+     "<div class=\"col-12 col-md-6 col-lg-3 mb-3\">\n"
      "<article class=\"card h-100 post-card\">\n"
      (if thumb
          (format "<a href=\"%s\" class=\"post-card-thumb\"><img src=\"%s\" class=\"card-img-top\" alt=\"\"></a>\n"
                  url thumb)
        "")
      "<div class=\"card-body\">\n"
-     (format "<h3 class=\"card-title h5\"><a href=\"%s\" class=\"text-decoration-none\">%s</a></h3>\n"
+     (format "<h3 class=\"card-title h6\"><a href=\"%s\" class=\"text-decoration-none\">%s</a></h3>\n"
              url title)
      (if date-h (format "<p class=\"card-subtitle text-muted small mb-2\">%s</p>\n" date-h) "")
      (format "<div class=\"card-text post-summary\">%s</div>\n" summary-html)
      (if tags
-         (format "<div class=\"post-tags mt-3\">%s</div>\n"
+         (format "<div class=\"post-tags mt-2\">%s</div>\n"
                  (org-bootstrap-publish--tag-pills tags))
        "")
      "</div>\n"
      "</article>\n"
      "</div>\n")))
 
-(defun org-bootstrap-publish--render-index (posts)
-  (let* ((n (min org-bootstrap-publish-posts-per-page (length posts)))
-         (recent (cl-subseq posts 0 n))
-         (cards  (mapconcat #'org-bootstrap-publish--card recent "")))
+(defun org-bootstrap-publish--page-url (n)
+  "URL for index page N (1-based).  Page 1 is the site root."
+  (if (<= n 1)
+      (org-bootstrap-publish--url "")
+    (org-bootstrap-publish--url "page/" (number-to-string n) "/")))
+
+(defun org-bootstrap-publish--pagination-nav (page total)
+  "Prev / page-N-of-M / Next nav for index page PAGE of TOTAL."
+  (if (<= total 1)
+      ""
+    (let* ((prev (when (> page 1) (1- page)))
+           (next (when (< page total) (1+ page))))
+      (concat
+       "<nav aria-label=\"Post pagination\" class=\"mt-4\">\n"
+       "<ul class=\"pagination justify-content-center\">\n"
+       (if prev
+           (format "<li class=\"page-item\"><a class=\"page-link\" href=\"%s\">&laquo; Newer</a></li>\n"
+                   (org-bootstrap-publish--page-url prev))
+         "<li class=\"page-item disabled\"><span class=\"page-link\">&laquo; Newer</span></li>\n")
+       (format "<li class=\"page-item active\" aria-current=\"page\"><span class=\"page-link\">Page %d of %d</span></li>\n"
+               page total)
+       (if next
+           (format "<li class=\"page-item\"><a class=\"page-link\" href=\"%s\">Older &raquo;</a></li>\n"
+                   (org-bootstrap-publish--page-url next))
+         "<li class=\"page-item disabled\"><span class=\"page-link\">Older &raquo;</span></li>\n")
+       "</ul>\n"
+       "</nav>\n"))))
+
+(defun org-bootstrap-publish--render-index (posts &optional page total)
+  "Render index cards for PAGE (1-based) of TOTAL pages.
+With no args, renders the first page only (legacy behaviour)."
+  (let* ((page  (or page 1))
+         (per   org-bootstrap-publish-posts-per-page)
+         (total (or total (max 1 (ceiling (/ (float (length posts)) per)))))
+         (start (* (1- page) per))
+         (end   (min (+ start per) (length posts)))
+         (slice (cl-subseq posts start end))
+         (cards (mapconcat #'org-bootstrap-publish--card slice ""))
+         (header (if (= page 1)
+                     "<h2>Latest posts</h2>"
+                   (format "<h2>Latest posts &mdash; page %d of %d</h2>"
+                           page total))))
     (concat
-     "<header class=\"page-header mb-4\"><h2>Latest posts</h2></header>\n"
+     (format "<header class=\"page-header mb-4\">%s</header>\n" header)
      "<div class=\"row\">\n"
      cards
      "</div>\n"
-     (if (> (length posts) n)
-         (format "<p class=\"text-center mt-3\"><a href=\"tags.html\">Browse all %d posts by tag &rarr;</a></p>\n"
-                 (length posts))
-       ""))))
+     (org-bootstrap-publish--pagination-nav page total))))
 
-(defun org-bootstrap-publish--render-post (post)
+(defun org-bootstrap-publish--post-nav (newer older)
+  "Render a prev/next nav block for a post page.
+NEWER is the chronologically newer neighbour; OLDER is the older
+one.  Either may be nil."
+  (if (not (or newer older))
+      ""
+    (cl-flet ((cell (post label align-end)
+                (if post
+                    (format "<div class=\"col-6 post-nav-%s%s\"><a href=\"%s\"><span class=\"post-nav-label\">%s</span><span class=\"post-nav-title\">%s</span></a></div>\n"
+                            (if align-end "next" "prev")
+                            (if align-end " text-end" "")
+                            (org-bootstrap-publish--post-url post)
+                            label
+                            (org-bootstrap-publish--escape
+                             (plist-get post :title)))
+                  "<div class=\"col-6\"></div>\n")))
+      (concat
+       "<nav class=\"post-nav\" aria-label=\"Post navigation\">\n"
+       "<div class=\"row\">\n"
+       (cell older "&laquo; Previous" nil)
+       (cell newer "Next &raquo;"     t)
+       "</div>\n"
+       "</nav>\n"))))
+
+(defun org-bootstrap-publish--render-post (post &optional newer older)
   (let* ((title  (org-bootstrap-publish--escape (plist-get post :title)))
          (date   (plist-get post :date))
          (tags   (plist-get post :tags))
@@ -499,6 +578,7 @@ No `git worktree' or anything fancy required -- a plain
      "</p>\n"
      "</header>\n"
      (format "<div class=\"post-body\">%s</div>\n" body)
+     (org-bootstrap-publish--post-nav newer older)
      "</article>\n")))
 
 (defun org-bootstrap-publish--render-tag-page (tag posts)
@@ -782,7 +862,7 @@ see stable identifiers."
 
 ;;;; Entry point
 
-(defun org-bootstrap-publish--write-post (post out)
+(defun org-bootstrap-publish--write-post (post out &optional newer older)
   (org-bootstrap-publish--write
    (expand-file-name
     (concat (org-bootstrap-publish--post-path post) "index.html") out)
@@ -790,7 +870,14 @@ see stable identifiers."
     (format "%s | %s"
             (plist-get post :title)
             org-bootstrap-publish-site-title)
-    (org-bootstrap-publish--render-post post))))
+    (org-bootstrap-publish--render-post post newer older))))
+
+(defun org-bootstrap-publish--neighbours (post posts)
+  "Return (NEWER OLDER) for POST within the newest-first POSTS list."
+  (let ((pos (cl-position post posts :test #'eq)))
+    (when pos
+      (list (and (> pos 0) (nth (1- pos) posts))
+            (and (< pos (1- (length posts))) (nth (1+ pos) posts))))))
 
 (defun org-bootstrap-publish--write-listings (posts tag-counts out &optional fast)
   "Write non-post pages (index, tag pages, archive, feeds, search index).
@@ -798,11 +885,22 @@ When FAST is non-nil, skip the expensive passes: per-tag HTML
 pages, per-tag feeds, and the site feed.  These embed fully
 exported post bodies and dominate rebuild time; they refresh on
 the next full build."
-  (org-bootstrap-publish--write
-   (expand-file-name "index.html" out)
-   (org-bootstrap-publish--page
-    org-bootstrap-publish-site-title
-    (org-bootstrap-publish--render-index posts)))
+  (let* ((per   org-bootstrap-publish-posts-per-page)
+         (total (max 1 (ceiling (/ (float (length posts)) per)))))
+    (dotimes (i total)
+      (let* ((page (1+ i))
+             (rel  (if (= page 1)
+                       "index.html"
+                     (concat "page/" (number-to-string page) "/index.html")))
+             (title (if (= page 1)
+                        org-bootstrap-publish-site-title
+                      (format "Page %d | %s" page
+                              org-bootstrap-publish-site-title))))
+        (org-bootstrap-publish--write
+         (expand-file-name rel out)
+         (org-bootstrap-publish--page
+          title
+          (org-bootstrap-publish--render-index posts page total))))))
   (unless fast
     (dolist (tc tag-counts)
       (let* ((tag (car tc))
@@ -857,12 +955,15 @@ current org buffer) and `org-bootstrap-publish-output-dir'."
          (posts (org-bootstrap-publish--parse-posts src))
          (tag-counts (org-bootstrap-publish--collect-tags posts)))
     (message "org-bootstrap-publish: parsed %d posts" (length posts))
-    (let ((i 0) (total (length posts)))
-      (dolist (p posts)
+    (let ((i 0) (total (length posts))
+          (newer nil) (cur posts))
+      (while cur
         (cl-incf i)
         (when (zerop (mod i 20))
           (message "org-bootstrap-publish: rendering post %d/%d" i total))
-        (org-bootstrap-publish--write-post p out)))
+        (let ((p (car cur)) (older (cadr cur)))
+          (org-bootstrap-publish--write-post p out newer older)
+          (setq newer p cur (cdr cur)))))
     (org-bootstrap-publish--write-listings posts tag-counts out)
     (org-bootstrap-publish--copy-assets out)
     (org-bootstrap-publish--copy-static src out)
@@ -891,7 +992,8 @@ current org buffer) and `org-bootstrap-publish-output-dir'."
     org-bootstrap-publish-highlight-css
     org-bootstrap-publish-highlight-js
     org-bootstrap-publish-publish-todo-states
-    org-bootstrap-publish-asset-file)
+    org-bootstrap-publish-asset-file
+    org-bootstrap-publish-menu-tags)
   "Customisation vars propagated to the async build subprocess.")
 
 (defun org-bootstrap-publish--library-dir ()
@@ -1048,7 +1150,8 @@ Intended as an `after-save-hook' while editing the source file."
                                :test #'string=)))
          (t0 (float-time)))
     (when target
-      (org-bootstrap-publish--write-post target out))
+      (let ((nb (org-bootstrap-publish--neighbours target posts)))
+        (org-bootstrap-publish--write-post target out (car nb) (cadr nb))))
     (org-bootstrap-publish--write-listings posts tag-counts out t)
     (org-bootstrap-publish--copy-assets out)
     (message "org-bootstrap-publish: rebuilt %s+ listings fast (%.2fs; run M-x org-bootstrap-publish-async for feeds/tag pages)"
