@@ -64,6 +64,11 @@ jobs:
               (setq org-bootstrap-publish-site-url    \"${{ steps.pages.outputs.base_url }}/\")
               (setq org-bootstrap-publish-site-path   \"${{ steps.pages.outputs.base_path }}/\")
               (setq org-bootstrap-publish-author      \"James Dyer\")
+              (setq org-bootstrap-publish-menu-tags
+                    '((\"2026\"         . \"2026\")
+                      (\"org\"          . \"org\")
+                      (\"ollama-buddy\" . \"ollama_buddy\")
+                      (\"dired\"        . \"dired\")))
               (org-bootstrap-publish))"
 
       - name: Upload artifact
