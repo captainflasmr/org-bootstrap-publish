@@ -405,7 +405,7 @@ No `git worktree' or anything fancy required -- a plain
              (org-bootstrap-publish--url "assets/style.css"))
      (format "<link rel=\"alternate\" type=\"application/atom+xml\" href=\"%s\" title=\"%s\">\n"
              (org-bootstrap-publish--url "index.xml") site)
-     "<script>(function(){var t=null;try{t=localStorage.getItem('obp-theme');}catch(e){}if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-obp-theme',t);document.documentElement.setAttribute('data-bs-theme',t==='dark'?'dark':'light');})();</script>\n"
+     "<script>(function(){var t=null;try{t=localStorage.getItem('obp-theme');}catch(e){}if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'emacs';}document.documentElement.setAttribute('data-obp-theme',t);document.documentElement.setAttribute('data-bs-theme',t==='dark'?'dark':'light');})();</script>\n"
      "</head>\n"
      "<body>\n"
      "<div class=\"site\">\n"
