@@ -5,6 +5,7 @@
   --obp-sidebar-fg: #e8e8e8;
   --obp-sidebar-muted: #9a9a9a;
   --obp-accent: #ff6f3c;
+  --obp-accent-rgb: 255, 111, 60;
   --obp-content-max: 1100px;
   --obp-reading-max: 780px;
 
@@ -19,7 +20,12 @@
   --obp-link: #b5461c;
 }
 
-[data-bs-theme="dark"] {
+[data-obp-theme="dark"] {
+  --obp-sidebar-bg: #202020;
+  --obp-sidebar-fg: #e8e8e8;
+  --obp-sidebar-muted: #9a9a9a;
+  --obp-accent: #ff6f3c;
+  --obp-accent-rgb: 255, 111, 60;
   --obp-body-bg: #1a1a1a;
   --obp-body-fg: #e2e2e2;
   --obp-card-bg: #262626;
@@ -29,6 +35,23 @@
   --obp-inline-code-fg: #ff8a80;
   --obp-blockquote-fg: #a5a5a5;
   --obp-link: #ff9a6b;
+}
+
+[data-obp-theme="emacs"] {
+  --obp-sidebar-bg: #1e1e3d;
+  --obp-sidebar-fg: #c8c8e0;
+  --obp-sidebar-muted: #8888aa;
+  --obp-accent: #3465a4;
+  --obp-accent-rgb: 52, 101, 164;
+  --obp-body-bg: #faf8f2;
+  --obp-body-fg: #33333a;
+  --obp-card-bg: #f5f0e8;
+  --obp-card-border: #d8d0c0;
+  --obp-card-title: #33333a;
+  --obp-inline-code-bg: #eee8d8;
+  --obp-inline-code-fg: #8b2252;
+  --obp-blockquote-fg: #5f5f6f;
+  --obp-link: #3465a4;
 }
 
 html, body { height: 100%; }
@@ -208,7 +231,7 @@ body {
   --bs-pagination-hover-border-color: var(--obp-accent);
   --bs-pagination-focus-color:       var(--obp-accent);
   --bs-pagination-focus-bg:          var(--obp-card-bg);
-  --bs-pagination-focus-box-shadow:  0 0 0 0.2rem rgba(255, 111, 60, 0.25);
+  --bs-pagination-focus-box-shadow:  0 0 0 0.2rem rgba(var(--obp-accent-rgb), 0.25);
   --bs-pagination-active-color:      #fff;
   --bs-pagination-active-bg:         var(--obp-accent);
   --bs-pagination-active-border-color: var(--obp-accent);
@@ -288,7 +311,7 @@ body {
   color: inherit;
 }
 .search-results li a:hover,
-.search-results li.active a { background: rgba(255, 111, 60, 0.12); }
+.search-results li.active a { background: rgba(var(--obp-accent-rgb), 0.12); }
 .search-results .search-title { display: block; font-weight: 600; font-size: 0.95rem; }
 .search-results .search-meta {
   display: block;
@@ -318,7 +341,8 @@ body {
   color: var(--obp-accent);
 }
 .theme-toggle .theme-toggle-label::before { content: "Light mode"; }
-[data-bs-theme="dark"] .theme-toggle .theme-toggle-label::before { content: "Dark mode"; }
+[data-obp-theme="dark"] .theme-toggle .theme-toggle-label::before { content: "Dark mode"; }
+[data-obp-theme="emacs"] .theme-toggle .theme-toggle-label::before { content: "Emacs mode"; }
 
 /* Responsive: collapse sidebar on top on small screens */
 @media (max-width: 768px) {
