@@ -99,18 +99,18 @@ A single site can pull posts from several Org files at once.  Set =org-bootstrap
 
 The save-hook rebuild walks all configured files looking for the buffer being saved, so editing any one of them still triggers an incremental rebuild.
 
-The umbrella site usually wants the sidebar to link section landings (=/blog/=, =/photos/=) and specific posts rather than the per-tag links in =org-bootstrap-publish-menu-tags=.  =org-bootstrap-publish-menu-links= takes an alist of =(label . url)= pairs and renders them in the sidebar as raw URLs:
+The umbrella site usually wants the sidebar to link section landings (=/blog/=, =/photos/=) and specific posts rather than the per-tag links in =org-bootstrap-publish-menu-tags=.  =org-bootstrap-publish-menu-links= takes an alist of =(label . url)= pairs and renders them in the sidebar as raw URLs.  Entries can use a long form, =(label url :style style)=, to control how the destination renders when it points to a generated section landing (the =:style= is ignored for tag pages, post URLs, and external links).  The default is =cards=; =list= renders a flat bullet list, useful for blog-shaped sections where thumbnails would just be noise.
 
 #+begin_src elisp
 (setq org-bootstrap-publish-menu-links
-      '(("gallery"    . "/art--gallery/")
-        ("photos"     . "/photos/")
-        ("blog"       . "/blog/")
-        ("emacs"      . "/tags/emacs/")
-        ("about"      . "/blog/posts--about-me/")))
+      '(("gallery"  "/art--gallery/" :style cards)
+        ("photos"   "/photos/"       :style cards)
+        ("blog"     "/blog/"         :style list)
+        ("emacs"    . "/tags/emacs/")
+        ("about"    . "/blog/posts--about-me/")))
 #+end_src
 
-Section landings (=/blog/=, =/photos/=, =/photos/2003/=, etc.) are generated automatically — one listing per distinct =EXPORT_HUGO_SECTION= root — unless a heading with =EXPORT_FILE_NAME: index= already owns that URL.
+Section landings (=/blog/=, =/photos/=, =/photos/2003/=, etc.) are generated automatically — one listing per distinct =EXPORT_HUGO_SECTION= root — unless a heading with =EXPORT_FILE_NAME: index= already owns that URL.  They paginate at =org-bootstrap-publish-posts-per-page= using =/<section>/page/N/= for the second page onwards.
 
 ** Selective static copy
 

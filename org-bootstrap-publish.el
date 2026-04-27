@@ -119,19 +119,33 @@ Example:
                 :value-type (string :tag "Tag")))
 
 (defcustom org-bootstrap-publish-menu-links nil
-  "Alist of (LABEL . URL) pairs to add to the sidebar nav.
+  "Sidebar nav entries.  Each entry is one of:
+
+  (LABEL . URL)               ; short form
+  (LABEL URL PROP VAL ...)    ; long form, plist tail
+
 Each entry adds a link to URL between the tag links and the RSS
 link.  URLs are passed through verbatim, so they can be section
 landings (`/blog/'), specific posts (`/blog/about/'), or external
 addresses.  Alist order is preserved.
 
+Recognised plist keys (long form only):
+
+  :style cards   ; render the destination section as Bootstrap
+                 ; cards (the default for generated section landings)
+  :style list    ; render the destination as a flat bullet list
+
+`:style' only takes effect when URL points to a section landing
+this package generates (e.g. `/blog/').  Tag pages, post URLs,
+and external links ignore it.
+
 Example:
 
   (setq org-bootstrap-publish-menu-links
-        \\='((\"Photos\" . \"/photos/\")
+        \\='((\"Photos\" \"/photos/\" :style cards)
+          (\"Blog\"   \"/blog/\"   :style list)
           (\"About\"  . \"/blog/about-me/\")))"
-  :type '(alist :key-type (string :tag "Label")
-                :value-type (string :tag "URL")))
+  :type '(repeat sexp))
 
 (defcustom org-bootstrap-publish-publish-todo-states '("DONE")
   "TODO-keyword states whose headings are published.
@@ -562,7 +576,8 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
      (mapconcat
       (lambda (entry)
         (format "        <li class=\"nav-link\"><a href=\"%s\">%s</a></li>\n"
-                (org-bootstrap-publish--escape (cdr entry))
+                (org-bootstrap-publish--escape
+                 (org-bootstrap-publish--menu-link-url entry))
                 (org-bootstrap-publish--escape (car entry))))
       org-bootstrap-publish-menu-links "")
      (format "        <li><a href=\"%s\">RSS</a></li>\n"
@@ -713,6 +728,7 @@ one.  Either may be nil."
      (if tags (concat " &middot; " (org-bootstrap-publish--tag-pills tags)) "")
      "</p>\n"
      "</header>\n"
+     (org-bootstrap-publish--post-nav newer older)
      (format "<div class=\"post-body\">%s</div>\n" body)
      (org-bootstrap-publish--post-nav newer older)
      "</article>\n")))
@@ -749,6 +765,7 @@ static/<section>/ relative to SOURCE-FILE."
      (if tags (concat " &middot; " (org-bootstrap-publish--tag-pills tags)) "")
      "</p>\n"
      "</header>\n"
+     (org-bootstrap-publish--post-nav newer older)
      (format "<div class=\"post-body\">%s</div>\n" body)
      (if (null images)
          (format "<p class=\"text-muted\">No images found in <code>static/%s/</code>.</p>\n"
@@ -1030,6 +1047,31 @@ see stable identifiers."
    (lambda (p) (member tag (plist-get p :tags)))
    posts))
 
+(defun org-bootstrap-publish--menu-link-url (entry)
+  "URL for a `org-bootstrap-publish-menu-links' ENTRY (short or long form)."
+  (let ((rest (cdr entry)))
+    (if (consp rest) (car rest) rest)))
+
+(defun org-bootstrap-publish--menu-link-plist (entry)
+  "Plist tail for a long-form menu-links ENTRY, or nil for short form."
+  (let ((rest (cdr entry)))
+    (and (consp rest) (cdr rest))))
+
+(defun org-bootstrap-publish--section-style-for-root (root)
+  "Style symbol (`cards' or `list') for ROOT, looked up via menu-links.
+Returns `cards' when no entry matches, no `:style' is set, or
+multiple entries collide."
+  (let ((target (concat "/" root "/"))
+        (style 'cards))
+    (dolist (entry org-bootstrap-publish-menu-links)
+      (let ((url (org-bootstrap-publish--menu-link-url entry))
+            (pl  (org-bootstrap-publish--menu-link-plist entry)))
+        (when (and url (string= url target) pl)
+          (let ((s (plist-get pl :style)))
+            (when (memq s '(cards list))
+              (setq style s))))))
+    style))
+
 (defun org-bootstrap-publish--section-root (post)
   "First path segment of POST's :section, or nil."
   (let ((s (plist-get post :section)))
@@ -1062,27 +1104,62 @@ see stable identifiers."
           (string= (or (plist-get p :slug) "") "index")))
    posts))
 
-(defun org-bootstrap-publish--render-section-page (root posts &optional page total)
-  (let* ((root-esc (org-bootstrap-publish--escape root))
-         (page  (or page 1))
-         (per   org-bootstrap-publish-posts-per-page)
-         (total (or total (max 1 (ceiling (/ (float (length posts)) per)))))
+(defun org-bootstrap-publish--section-header (root posts page total)
+  (let ((root-esc (org-bootstrap-publish--escape root)))
+    (concat
+     (format "<header class=\"page-header mb-4\">%s"
+             (if (= page 1)
+                 (format "<h2>Section: <code>%s</code></h2>" root-esc)
+               (format "<h2>Section: <code>%s</code> &mdash; page %d of %d</h2>"
+                       root-esc page total)))
+     (format "<p class=\"text-muted\">%d post%s</p></header>\n"
+             (length posts) (if (= 1 (length posts)) "" "s")))))
+
+(defun org-bootstrap-publish--render-section-page-cards (root posts page total)
+  (let* ((per   org-bootstrap-publish-posts-per-page)
          (start (* (1- page) per))
          (end   (min (+ start per) (length posts)))
          (slice (cl-subseq posts start end))
-         (cards (mapconcat #'org-bootstrap-publish--card slice ""))
-         (header (if (= page 1)
-                     (format "<h2>Section: <code>%s</code></h2>" root-esc)
-                   (format "<h2>Section: <code>%s</code> &mdash; page %d of %d</h2>"
-                           root-esc page total))))
+         (cards (mapconcat #'org-bootstrap-publish--card slice "")))
     (concat
-     (format "<header class=\"page-header mb-4\">%s" header)
-     (format "<p class=\"text-muted\">%d post%s</p></header>\n"
-             (length posts) (if (= 1 (length posts)) "" "s"))
+     (org-bootstrap-publish--section-header root posts page total)
      "<div class=\"row\">\n"
      cards
      "</div>\n"
      (org-bootstrap-publish--pagination-nav page total (concat root "/")))))
+
+(defun org-bootstrap-publish--render-section-page-list (root posts page total)
+  (let* ((per   org-bootstrap-publish-posts-per-page)
+         (start (* (1- page) per))
+         (end   (min (+ start per) (length posts)))
+         (slice (cl-subseq posts start end))
+         (items (mapconcat
+                 (lambda (p)
+                   (let ((url (org-bootstrap-publish--post-url p))
+                         (title (org-bootstrap-publish--escape (plist-get p :title)))
+                         (date (plist-get p :date)))
+                     (format "<li class=\"mb-2\"><a href=\"%s\">%s</a>%s</li>\n"
+                             url title
+                             (if date
+                                 (format " <span class=\"text-muted small\">&middot; %s</span>"
+                                         (org-bootstrap-publish--human-date date))
+                               ""))))
+                 slice "")))
+    (concat
+     (org-bootstrap-publish--section-header root posts page total)
+     "<ul class=\"post-list list-unstyled\">\n"
+     items
+     "</ul>\n"
+     (org-bootstrap-publish--pagination-nav page total (concat root "/")))))
+
+(defun org-bootstrap-publish--render-section-page (root posts &optional page total)
+  (let* ((page  (or page 1))
+         (per   org-bootstrap-publish-posts-per-page)
+         (total (or total (max 1 (ceiling (/ (float (length posts)) per)))))
+         (style (org-bootstrap-publish--section-style-for-root root)))
+    (if (eq style 'list)
+        (org-bootstrap-publish--render-section-page-list root posts page total)
+      (org-bootstrap-publish--render-section-page-cards root posts page total))))
 
 (defun org-bootstrap-publish--copy-static (source-file out-dir)
   (dolist (name org-bootstrap-publish-static-dirs)
