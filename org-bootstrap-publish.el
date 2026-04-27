@@ -24,9 +24,11 @@
 ;;   - Custom stylesheet copied into public/assets/.
 ;;
 ;; Recognised heading properties (compatible with ox-hugo):
-;;   EXPORT_FILE_NAME                -> post slug
+;;   EXPORT_FILE_NAME                -> post slug ("index" → URL is /<section>/)
 ;;   EXPORT_HUGO_SECTION             -> post section (used as URL prefix)
 ;;   EXPORT_HUGO_LASTMOD             -> post date
+;;   EXPORT_HUGO_TYPE                -> "gallery" renders a masonry grid of
+;;                                      images read from static/<section>/
 ;;   EXPORT_HUGO_CUSTOM_FRONT_MATTER -> :thumbnail /path/to/image.jpg
 ;;
 ;; The `noexport' tag skips a heading.
@@ -259,6 +261,7 @@ No `git worktree' or anything fancy required -- a plain
                        (slug  (org-bootstrap-publish--slug title props))
                        (section (or (cdr (assoc "EXPORT_HUGO_SECTION" props))
                                     "posts"))
+                       (type    (cdr (assoc "EXPORT_HUGO_TYPE" props)))
                        (thumb (org-bootstrap-publish--thumbnail props))
                        (summary (org-bootstrap-publish--summary body)))
                   (push (list :title title
@@ -266,6 +269,7 @@ No `git worktree' or anything fancy required -- a plain
                               :date date
                               :slug slug
                               :section section
+                              :type type
                               :thumbnail thumb
                               :body body
                               :summary summary)
@@ -328,6 +332,92 @@ No `git worktree' or anything fancy required -- a plain
            html nil t)))
   (org-bootstrap-publish--rewrite-static-src html))
 
+(defun org-bootstrap-publish--shortcode-static-url (src)
+  "Map a Hugo-style /foo path to /<site-path>static/foo, leave others alone."
+  (cond
+   ((string-prefix-p "static/" src) (org-bootstrap-publish--url src))
+   ((string-prefix-p "/" src)
+    (concat (org-bootstrap-publish--url "static") src))
+   (t src)))
+
+(defun org-bootstrap-publish--rewrite-shortcodes (body)
+  "Convert common Hugo shortcodes in BODY to HTML export blocks.
+Recognises {{< youtube ID >}}, {{< video src=\"...\" >}}, and
+{{< figure src=\"...\" >}}, with or without a surrounding
+`#+begin_export md' / `#+end_export' wrapper.  `save-match-data'
+shields the outer `replace-regexp-in-string' from the inner
+`string-match' calls used to pull capture groups out of the matched
+substring."
+  (let ((case-fold-search nil))
+    ;; YouTube
+    (setq body
+          (replace-regexp-in-string
+           (concat "\\(?:^[ \t]*#\\+begin_export[ \t]+md[ \t]*\n\\)?"
+                   "[ \t]*{{<[ \t]*youtube[ \t]+\\([A-Za-z0-9_-]+\\)[ \t]*>}}[ \t]*"
+                   "\\(?:\n[ \t]*#\\+end_export[ \t]*\\)?")
+           (lambda (m)
+             (save-match-data
+               (string-match "youtube[ \t]+\\([A-Za-z0-9_-]+\\)" m)
+               (let ((id (match-string 1 m)))
+                 (format
+                  (concat "#+begin_export html\n"
+                          "<div class=\"ratio ratio-16x9 my-3\">"
+                          "<iframe src=\"https://www.youtube.com/embed/%s\" "
+                          "title=\"YouTube video\" frameborder=\"0\" "
+                          "allow=\"accelerometer; autoplay; clipboard-write; "
+                          "encrypted-media; gyroscope; picture-in-picture\" "
+                          "allowfullscreen></iframe></div>\n"
+                          "#+end_export")
+                  id))))
+           body t t))
+    ;; Local video
+    (setq body
+          (replace-regexp-in-string
+           (concat "\\(?:^[ \t]*#\\+begin_export[ \t]+md[ \t]*\n\\)?"
+                   "[ \t]*{{<[ \t]*video[ \t]+src=\"\\([^\"]+\\)\"[ \t]*>}}[ \t]*"
+                   "\\(?:\n[ \t]*#\\+end_export[ \t]*\\)?")
+           (lambda (m)
+             (save-match-data
+               (string-match "src=\"\\([^\"]+\\)\"" m)
+               (let ((url (org-bootstrap-publish--shortcode-static-url
+                           (match-string 1 m))))
+                 (format
+                  (concat "#+begin_export html\n"
+                          "<video controls preload=\"metadata\" class=\"w-100 my-3\">"
+                          "<source src=\"%s\" type=\"video/mp4\"></video>\n"
+                          "#+end_export")
+                  url))))
+           body t t))
+    ;; Hugo figure -> img
+    (setq body
+          (replace-regexp-in-string
+           (concat "\\(?:^[ \t]*#\\+begin_export[ \t]+md[ \t]*\n\\)?"
+                   "[ \t]*{{<[ \t]*figure[ \t]+src=\"\\([^\"]+\\)\""
+                   "\\(?:[ \t]+caption=\"\\([^\"]*\\)\"\\)?[ \t]*>}}[ \t]*"
+                   "\\(?:\n[ \t]*#\\+end_export[ \t]*\\)?")
+           (lambda (m)
+             (save-match-data
+               (string-match "src=\"\\([^\"]+\\)\"" m)
+               (let* ((src (org-bootstrap-publish--shortcode-static-url
+                            (match-string 1 m)))
+                      (caption (and (string-match "caption=\"\\([^\"]*\\)\"" m)
+                                    (match-string 1 m))))
+                 (format
+                  (concat "#+begin_export html\n"
+                          "<figure class=\"figure my-3\">"
+                          "<img src=\"%s\" class=\"figure-img img-fluid rounded\" alt=\"%s\">"
+                          "%s"
+                          "</figure>\n"
+                          "#+end_export")
+                  src
+                  (or caption "")
+                  (if (and caption (not (string-empty-p caption)))
+                      (format "<figcaption class=\"figure-caption\">%s</figcaption>"
+                              caption)
+                    "")))))
+           body t t)))
+  body)
+
 (defun org-bootstrap-publish--org->html (body)
   "Render org BODY string to HTML via ox-html, body-only."
   (if (or (null body) (string-empty-p (string-trim body)))
@@ -342,7 +432,9 @@ No `git worktree' or anything fancy required -- a plain
           (org-html-container-element "section")
           (inhibit-message t))
       (org-bootstrap-publish--bootstrapify
-       (org-export-string-as body 'html t)))))
+       (org-export-string-as
+        (org-bootstrap-publish--rewrite-shortcodes body)
+        'html t)))))
 
 ;;;; Templates
 
@@ -350,12 +442,17 @@ No `git worktree' or anything fancy required -- a plain
   (apply #'concat org-bootstrap-publish-site-path parts))
 
 (defun org-bootstrap-publish--post-path (post)
-  "Relative URL path (no leading slash) to POST's directory."
-  (let ((section (plist-get post :section))
-        (slug (plist-get post :slug)))
-    (if (and section (not (string-empty-p section)))
-        (concat section "/" slug "/")
-      (concat slug "/"))))
+  "Relative URL path (no leading slash) to POST's directory.
+A slug of \"index\" collapses into the section path, mirroring
+Hugo's content-bundle convention (`section/index.md' → /section/)."
+  (let* ((section (plist-get post :section))
+         (slug    (plist-get post :slug))
+         (bundle  (and slug (string= slug "index"))))
+    (cond
+     (bundle (concat section "/"))
+     ((and section (not (string-empty-p section)))
+      (concat section "/" slug "/"))
+     (t (concat slug "/")))))
 
 (defun org-bootstrap-publish--post-url (post)
   (org-bootstrap-publish--url (org-bootstrap-publish--post-path post)))
@@ -578,6 +675,58 @@ one.  Either may be nil."
      "</p>\n"
      "</header>\n"
      (format "<div class=\"post-body\">%s</div>\n" body)
+     (org-bootstrap-publish--post-nav newer older)
+     "</article>\n")))
+
+(defun org-bootstrap-publish--gallery-images (source-file section)
+  "Image filenames in SOURCE-FILE's static/SECTION dir, newest-first by name."
+  (let* ((dir (expand-file-name (concat "static/" section)
+                                (file-name-directory source-file)))
+         (re  "\\.\\(?:gif\\|webp\\|jpe?g\\|tiff?\\|png\\|bmp\\)\\'"))
+    (when (file-directory-p dir)
+      (sort (directory-files dir nil re t)
+            (lambda (a b) (string-greaterp a b))))))
+
+(defun org-bootstrap-publish--render-gallery (post source-file &optional newer older)
+  "Render a masonry gallery page for POST, pulling images from
+static/<section>/ relative to SOURCE-FILE."
+  (let* ((title   (org-bootstrap-publish--escape (plist-get post :title)))
+         (date    (plist-get post :date))
+         (tags    (plist-get post :tags))
+         (section (plist-get post :section))
+         (body    (org-bootstrap-publish--org->html (plist-get post :body)))
+         (images  (org-bootstrap-publish--gallery-images source-file section))
+         (url-base (org-bootstrap-publish--url "static/" section "/")))
+    (concat
+     "<article class=\"post post-gallery\">\n"
+     "<header class=\"post-header mb-4\">\n"
+     (format "<h1>%s</h1>\n" title)
+     "<p class=\"post-meta text-muted\">\n"
+     (if date
+         (format "<time datetime=\"%s\">%s</time>\n"
+                 (org-bootstrap-publish--iso date)
+                 (org-bootstrap-publish--human-date date))
+       "")
+     (if tags (concat " &middot; " (org-bootstrap-publish--tag-pills tags)) "")
+     "</p>\n"
+     "</header>\n"
+     (format "<div class=\"post-body\">%s</div>\n" body)
+     (if (null images)
+         (format "<p class=\"text-muted\">No images found in <code>static/%s/</code>.</p>\n"
+                 (org-bootstrap-publish--escape section))
+       (concat
+        "<div class=\"row row-img-fluid gallery-grid\">\n"
+        (mapconcat
+         (lambda (name)
+           (let ((u (concat url-base name)))
+             (format
+              "<div class=\"col-6 col-md-3 col-xl-2 pb-1 px-2\"><a href=\"%s\"><img src=\"%s\" alt=\"\" class=\"img-fluid\"></a></div>\n"
+              u u)))
+         images "")
+        "</div>\n"
+        "<script src=\"https://cdn.jsdelivr.net/npm/masonry-layout@4.2.2/dist/masonry.pkgd.min.js\"></script>\n"
+        "<script src=\"https://cdn.jsdelivr.net/npm/imagesloaded@5/imagesloaded.pkgd.min.js\"></script>\n"
+        "<script>(function(){var g=document.querySelector('.gallery-grid');if(!g||typeof Masonry==='undefined')return;var m=new Masonry(g,{percentPosition:true});if(typeof imagesLoaded==='function'){imagesLoaded(g).on('progress',function(){m.layout();});}})();</script>\n"))
      (org-bootstrap-publish--post-nav newer older)
      "</article>\n")))
 
@@ -847,6 +996,7 @@ see stable identifiers."
     (let ((src (expand-file-name name (file-name-directory source-file)))
           (dst (expand-file-name name out-dir)))
       (when (file-directory-p src)
+        (org-bootstrap-publish--mkdir (file-name-directory dst))
         (copy-directory src dst nil t t)))))
 
 (defun org-bootstrap-publish--copy-assets (out-dir)
@@ -862,15 +1012,22 @@ see stable identifiers."
 
 ;;;; Entry point
 
-(defun org-bootstrap-publish--write-post (post out &optional newer older)
-  (org-bootstrap-publish--write
-   (expand-file-name
-    (concat (org-bootstrap-publish--post-path post) "index.html") out)
-   (org-bootstrap-publish--page
-    (format "%s | %s"
-            (plist-get post :title)
-            org-bootstrap-publish-site-title)
-    (org-bootstrap-publish--render-post post newer older))))
+(defun org-bootstrap-publish--write-post (post out source-file &optional newer older)
+  (let* ((type (plist-get post :type))
+         (body (cond
+                ((and type (string= type "gallery"))
+                 (org-bootstrap-publish--render-gallery
+                  post source-file newer older))
+                (t
+                 (org-bootstrap-publish--render-post post newer older)))))
+    (org-bootstrap-publish--write
+     (expand-file-name
+      (concat (org-bootstrap-publish--post-path post) "index.html") out)
+     (org-bootstrap-publish--page
+      (format "%s | %s"
+              (plist-get post :title)
+              org-bootstrap-publish-site-title)
+      body))))
 
 (defun org-bootstrap-publish--neighbours (post posts)
   "Return (NEWER OLDER) for POST within the newest-first POSTS list."
@@ -962,7 +1119,7 @@ current org buffer) and `org-bootstrap-publish-output-dir'."
         (when (zerop (mod i 20))
           (message "org-bootstrap-publish: rendering post %d/%d" i total))
         (let ((p (car cur)) (older (cadr cur)))
-          (org-bootstrap-publish--write-post p out newer older)
+          (org-bootstrap-publish--write-post p out src newer older)
           (setq newer p cur (cdr cur)))))
     (org-bootstrap-publish--write-listings posts tag-counts out)
     (org-bootstrap-publish--copy-assets out)
@@ -1151,7 +1308,7 @@ Intended as an `after-save-hook' while editing the source file."
          (t0 (float-time)))
     (when target
       (let ((nb (org-bootstrap-publish--neighbours target posts)))
-        (org-bootstrap-publish--write-post target out (car nb) (cadr nb))))
+        (org-bootstrap-publish--write-post target out src (car nb) (cadr nb))))
     (org-bootstrap-publish--write-listings posts tag-counts out t)
     (org-bootstrap-publish--copy-assets out)
     (message "org-bootstrap-publish: rebuilt %s+ listings fast (%.2fs; run M-x org-bootstrap-publish-async for feeds/tag pages)"

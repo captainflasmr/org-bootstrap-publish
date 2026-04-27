@@ -12,7 +12,9 @@ Generate a Bootstrap 5 static site from a single Org file.  Each top-level headi
 - Atom feed at =index.xml= (also mirrored to =feed.xml=).
 - Hyde-style left sidebar with site title, tagline, nav, and byline.
 - Optional highlight.js code-block highlighting (CDN, opt-out).
-- Recognises =EXPORT_FILE_NAME=, =EXPORT_HUGO_SECTION=, =EXPORT_HUGO_LASTMOD=, and the =:thumbnail= key inside =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= so an ox-hugo source file works unchanged.
+- Gallery posts: a heading marked =:EXPORT_HUGO_TYPE: gallery= renders a masonry grid of every image found in =static/<section>/= at build time, in addition to the heading body.  Useful for art portfolios and similar collections where the images live next to each other on disk and you want one page that surfaces them all.
+- Hugo shortcodes: =\{\{< youtube ID >\}\}=, =\{\{< video src="..." >\}\}=, and =\{\{< figure src="..." caption="..." >\}\}= are recognised both bare and wrapped in =#+begin_export md= / =#+end_export=, and emit a Bootstrap iframe, =<video>=, or =<figure>= in their place.  Lets an ox-hugo source file with embedded shortcodes carry over without manual rewriting.
+- Recognises =EXPORT_FILE_NAME= (use =index= for a section-bundle URL), =EXPORT_HUGO_SECTION=, =EXPORT_HUGO_LASTMOD=, =EXPORT_HUGO_TYPE=, and the =:thumbnail= key inside =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= so an ox-hugo source file works unchanged.
 
 * Install
 
@@ -49,6 +51,51 @@ emacs --batch \
     (org-bootstrap-publish))"
 #+end_src
 
+* Multiple sites from one Emacs
+
+Every option above is a regular =defcustom=, so the easiest way to publish more than one site is to override them per build instead of =setq='ing them globally.  Pass overrides on the =--batch= command line and the same Emacs build can target whichever site you point it at — the in-Emacs default values still resolve to the =Emacs Dwelling= site, but the batch =--eval= takes precedence.
+
+The example below builds the art portfolio.  It overrides the source file, output dir, URL, title, the static subtree to copy, and the sidebar tag links.  The =EXPORT_HUGO_TYPE: gallery= headings in =art.org= are picked up automatically.
+
+#+begin_src sh
+emacs --batch \
+  -L ~/source/repos/org-bootstrap-publish \
+  -l org-bootstrap-publish \
+  --eval "(progn
+    (setq org-bootstrap-publish-source-file  \"~/publish/hugo-unified/art.org\")
+    (setq org-bootstrap-publish-output-dir   \"~/publish/hugo-unified/public\")
+    (setq org-bootstrap-publish-site-title   \"DyerDwelling/art\")
+    (setq org-bootstrap-publish-site-tagline \"Welcome to the home of James Dyer wearied traveller\")
+    (setq org-bootstrap-publish-site-url     \"https://www.art.dyerdwelling.family/\")
+    (setq org-bootstrap-publish-site-path    \"/\")
+    (setq org-bootstrap-publish-author       \"James Dyer\")
+    (setq org-bootstrap-publish-static-dirs
+          '(\"static/art--gallery\" \"static/art--videos\" \"static/art--other\"))
+    (setq org-bootstrap-publish-menu-tags
+          '((\"gallery\" . \"gallery\")
+            (\"videos\"  . \"videos\")
+            (\"doodles\" . \"doodle\")
+            (\"artrage\" . \"artrage\")
+            (\"2024\"    . \"2024\")
+            (\"2023\"    . \"2023\")
+            (\"2022\"    . \"2022\")))
+    (org-bootstrap-publish))"
+#+end_src
+
+The interactive =M-x org-bootstrap-publish= still uses whatever your =init.el= sets — typically the emacs blog — so day-to-day editing of =README.org= continues to work without thinking about it.  A second site is one shell command away when you need it.
+
+** Selective static copy
+
+=org-bootstrap-publish-static-dirs= controls which subtrees of the source file's directory are copied into =public/=.  The default is the whole =static/= folder, which is fine when one folder serves one site.  Set it to a list of nested paths to copy only what a given site needs:
+
+#+begin_src elisp
+;; Art site: skip emacs/, kate/, photos/, etc.
+(setq org-bootstrap-publish-static-dirs
+      '("static/art--gallery" "static/art--videos" "static/art--other"))
+#+end_src
+
+The destination directory tree is created automatically, so nested entries work without any further setup.
+
 * Customization
 
 | Variable                                      | Meaning                                            |
@@ -70,25 +117,68 @@ emacs --batch \
 
 The package reads these properties from each heading's drawer:
 
-| Property                           | Use                                           |
-|------------------------------------+-----------------------------------------------|
-| =EXPORT_FILE_NAME=                 | Post slug (lowercased; used as URL segment).  |
-| =EXPORT_HUGO_SECTION=              | Section label (informational).                |
-| =EXPORT_HUGO_LASTMOD=              | Post timestamp.  Parses =<YYYY-MM-DD HH:MM>=. |
-| =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= | =:thumbnail /emacs/foo.jpg= → card image.     |
+| Property                           | Use                                                            |
+|------------------------------------+----------------------------------------------------------------|
+| =EXPORT_FILE_NAME=                 | Post slug (lowercased; =index= → URL is =/<section>/=).        |
+| =EXPORT_HUGO_SECTION=              | URL prefix.  Posts live at =/<section>/<slug>/=.               |
+| =EXPORT_HUGO_LASTMOD=              | Post timestamp.  Parses =<YYYY-MM-DD HH:MM>=.                  |
+| =EXPORT_HUGO_TYPE=                 | =gallery= renders a masonry grid from =static/<section>/=.     |
+| =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= | =:thumbnail /emacs/foo.jpg= → card image.                      |
 
 Heading tags become tag pages.  The =noexport= tag skips a heading.
 
+* Gallery posts
+
+A gallery is just a regular post with two extra drawer entries:
+
+#+begin_src org
+,* Gallery -> Portraits :portrait:gallery:artrage:
+:PROPERTIES:
+:EXPORT_FILE_NAME: index
+:EXPORT_HUGO_SECTION: art--gallery/portraits
+:EXPORT_HUGO_TYPE: gallery
+:EXPORT_HUGO_LASTMOD: 2023-03-05
+:EXPORT_HUGO_CUSTOM_FRONT_MATTER+: :thumbnail /art--gallery/gallery--portraits.jpg
+:END:
+A short paragraph that appears above the grid.
+
+#+hugo: more
+#+end_src
+
+At build time the package walks =static/art--gallery/portraits/= relative to the source file, collects every =.jpg/.png/.gif/.webp/.tiff/.bmp=, sorts them by filename descending (so date-prefixed files come out newest-first), and emits a Bootstrap masonry grid pointing at each image.  The =index= slug collapses the URL to =/art--gallery/portraits/= to match Hugo's content-bundle convention.
+
+For this to work, =static/art--gallery= (or whichever subtree holds the gallery images) must be in =org-bootstrap-publish-static-dirs= so it gets copied to the output.  See "Selective static copy" below.
+
 * Preview
 
-After a build, serve the =public/= folder:
+** Inside Emacs
+
+=M-x org-bootstrap-publish-serve= builds, opens a browser at =http://localhost:8080=, and installs an =after-save-hook= so editing the source file rebuilds just that post plus the listings (~1 second).  =M-x org-bootstrap-publish-stop= shuts the server down again.
+
+** From a shell
+
+After a batch build, serve the =public/= folder directly:
 
 #+begin_src sh
 cd public && python3 -m http.server 8080
 #+end_src
 
+Then walk a few representative URLs to spot-check the build before deploying — at minimum the index, a regular post, the archive, the tags index, and (if relevant) a gallery page:
+
+#+begin_src
+http://localhost:8080/
+http://localhost:8080/posts.html
+http://localhost:8080/tags.html
+http://localhost:8080/<section>/<slug>/             # a regular post
+http://localhost:8080/art--gallery/portraits/       # a gallery page
+http://localhost:8080/index.xml                     # Atom feed
+#+end_src
+
 * Deploy
 
-- Cloudflare Pages: =wrangler pages deploy public=
+- Cloudflare Pages: =wrangler pages deploy public --project-name=<name>=
 - Netlify:          drag-drop =public/=, or =netlify deploy --prod --dir public=
-- GitHub Pages:     commit =public/= on a =gh-pages= branch
+- GitHub Pages:     see =workflows/pages.yml= for a CI-side build, or
+                    commit =public/= on a =gh-pages= branch
+- Local push:       =M-x org-bootstrap-publish-publish= rsyncs into
+                    =org-bootstrap-publish-deploy-dir=, commits, pushes

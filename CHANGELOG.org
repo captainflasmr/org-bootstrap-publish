@@ -9,77 +9,29 @@ All notable changes to this package.  Dates follow the commit date
 
 Pending work on =main= not yet covered by a release tag:
 
-- Suppress =org-confirm-babel-evaluate= / =org-export-use-babel= inside
-  the package's export so editing a README with src blocks no longer
-  produces "Evaluate this emacs-lisp code block on your system?"
-  prompts on every save.
-- Light/dark theme toggle.  Content-area colours move into CSS
-  variables with a =[data-bs-theme="dark"]= override; an inline =<head>=
-  script applies the saved theme (or =prefers-color-scheme=) before
-  first paint; a sidebar button flips state and persists to
-  =localStorage=.  Button label always names the currently-active
-  mode.
-- Save-hook rebuild now runs in a "fast" mode that skips per-tag HTML,
-  per-tag feeds, and the site feed.  These embed fully exported post
-  bodies via =ox-html= and were adding ~10 s per save; fast-mode
-  rebuilds complete in ~0.5 s.  The skipped listings refresh on the
-  next full build (=M-x org-bootstrap-publish-async=).
-- Save-hook rebuild also re-copies =assets/=, so stylesheet edits
-  flow through to =public/= without needing a separate full build.
-- Live-reload for the dev server.  Each build writes a timestamp to
-  =public/reload-token=; every generated page embeds a small script
-  that polls that file once a second from =localhost= and calls
-  =location.reload()= when it changes.  The hostname check means the
-  script is a no-op on the deployed site.
+- Gallery posts.  A heading marked =:EXPORT_HUGO_TYPE: gallery= renders a Bootstrap masonry grid of every image found in =static/<section>/= relative to the source file, sorted by filename descending so date-prefixed files come out newest-first.  The heading body still renders above the grid, so the existing intro paragraph survives.  Each tile links to the full-size image.  Driven by =org-bootstrap-publish--render-gallery=; the dispatch in =--write-post= keeps non-gallery posts on the standard renderer.
+- =EXPORT_FILE_NAME: index= now collapses the post URL to =/<section>/= rather than =/<section>/index/=, matching Hugo's content-bundle convention.  Lets a single heading own a section's landing page, which is how the new gallery posts are wired.
+- =org-bootstrap-publish--copy-static= mkdirs the destination's parent before each =copy-directory=, so nested entries in =org-bootstrap-publish-static-dirs= (e.g. =static/art--gallery=) work without any extra setup.  Useful for siblings sharing one source tree where each site only wants part of =static/=.
+- Hugo-shortcode preprocessor.  Recognises =\{\{< youtube ID >\}\}=, =\{\{< video src="..." >\}\}=, and =\{\{< figure src="..." caption="..." >\}\}= whether they sit on their own or inside a =#+begin_export md= / =#+end_export= wrapper, and rewrites them to a =#+begin_export html= block emitting a Bootstrap iframe / =<video>= / =<figure>=.  Without this, ox-html silently dropped the md export blocks and the embeds vanished.  =/foo= paths in =video= / =figure= shortcodes are rewritten to =<site-path>static/foo= so Hugo's flattened-static convention keeps working.
+- Suppress =org-confirm-babel-evaluate= / =org-export-use-babel= inside the package's export so editing a README with src blocks no longer produces "Evaluate this emacs-lisp code block on your system?"  prompts on every save.
+- Light/dark theme toggle.  Content-area colours move into CSS variables with a =[data-bs-theme="dark"]= override; an inline =<head>= script applies the saved theme (or =prefers-color-scheme=) before first paint; a sidebar button flips state and persists to =localStorage=.  Button label always names the currently-active mode.
+- Save-hook rebuild now runs in a "fast" mode that skips per-tag HTML, per-tag feeds, and the site feed.  These embed fully exported post bodies via =ox-html= and were adding ~10 s per save; fast-mode rebuilds complete in ~0.5 s.  The skipped listings refresh on the next full build (=M-x org-bootstrap-publish-async=).
+- Save-hook rebuild also re-copies =assets/=, so stylesheet edits flow through to =public/= without needing a separate full build.
+- Live-reload for the dev server.  Each build writes a timestamp to =public/reload-token=; every generated page embeds a small script that polls that file once a second from =localhost= and calls =location.reload()= when it changes.  The hostname check means the script is a no-op on the deployed site.
 
 * 2026-04-23
 
 ** Added
 
-- Initial package: build a Bootstrap 5 static site from a single
-  Org-mode file, one top-level heading per post.  Includes index
-  with responsive post cards, per-post pages, per-tag pages, a
-  tag cloud, an archive, an Atom feed, and a hyde-style left
-  sidebar.  =M-x org-bootstrap-publish= writes =public/=.
-  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/9e022ee][9e022ee]])
-- Dev server with rebuild-on-save: =M-x org-bootstrap-publish-serve=
-  starts =python3 -m http.server=, opens the browser, and installs
-  an =after-save-hook= on the source file so saves trigger an
-  incremental rebuild.  =M-x org-bootstrap-publish-stop= kills the
-  server and removes the hook.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/9e022ee][9e022ee]])
-- Local build+push deploy: =M-x org-bootstrap-publish-publish=
-  builds, rsyncs the output into a pinned deploy worktree, commits,
-  and pushes.  A =.nojekyll= is written so GitHub Pages serves
-  underscore-prefixed paths.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/9e022ee][9e022ee]])
-- Sample GitHub Actions workflow at =workflows/pages.yml= for sites
-  that prefer CI-side builds.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/9e022ee][9e022ee]])
-- Client-side article search.  Generates =public/index.json= (one
-  entry per post with title, permalink, summary, tags, section,
-  date; summary stripped of Org markup and truncated to 200 chars).
-  Ships =assets/search.js= once per site.  Sidebar input shows up to
-  12 matches with arrow-key navigation and Enter-to-go.
-  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/3c0e450][3c0e450]])
-- Asynchronous full build.  =M-x org-bootstrap-publish-async= spawns
-  a child =emacs --batch -Q= subprocess so the editor stays
-  responsive; progress lines stream to the echo area and the full
-  transcript lands in =*obp-build*=.  =org-bootstrap-publish-serve=
-  now uses the async path for its initial build; the server and
-  browser launch from the completion callback.
-  =org-bootstrap-publish-async-abort= and =org-bootstrap-publish-stop=
-  kill a running child cleanly.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/0836a94][0836a94]])
+- Initial package: build a Bootstrap 5 static site from a single Org-mode file, one top-level heading per post.  Includes index with responsive post cards, per-post pages, per-tag pages, a tag cloud, an archive, an Atom feed, and a hyde-style left sidebar.  =M-x org-bootstrap-publish= writes =public/=.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/9e022ee][9e022ee]])
+- Dev server with rebuild-on-save: =M-x org-bootstrap-publish-serve= starts =python3 -m http.server=, opens the browser, and installs an =after-save-hook= on the source file so saves trigger an incremental rebuild.  =M-x org-bootstrap-publish-stop= kills the server and removes the hook.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/9e022ee][9e022ee]])
+- Local build+push deploy: =M-x org-bootstrap-publish-publish= builds, rsyncs the output into a pinned deploy worktree, commits, and pushes.  A =.nojekyll= is written so GitHub Pages serves underscore-prefixed paths.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/9e022ee][9e022ee]])
+- Sample GitHub Actions workflow at =workflows/pages.yml= for sites that prefer CI-side builds.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/9e022ee][9e022ee]])
+- Client-side article search.  Generates =public/index.json= (one entry per post with title, permalink, summary, tags, section, date; summary stripped of Org markup and truncated to 200 chars).  Ships =assets/search.js= once per site.  Sidebar input shows up to 12 matches with arrow-key navigation and Enter-to-go.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/3c0e450][3c0e450]])
+- Asynchronous full build.  =M-x org-bootstrap-publish-async= spawns a child =emacs --batch -Q= subprocess so the editor stays responsive; progress lines stream to the echo area and the full transcript lands in =*obp-build*=.  =org-bootstrap-publish-serve= now uses the async path for its initial build; the server and browser launch from the completion callback.  =org-bootstrap-publish-async-abort= and =org-bootstrap-publish-stop= kill a running child cleanly.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/0836a94][0836a94]])
 
 ** Changed
 
-- Feed layout aligned with Hugo's defaults so migrating sites keep
-  their existing RSS subscribers without re-notifying the archive.
-  Posts now live at =/<section>/<slug>/=, slugs are lowercased, and
-  the Atom feed is mirrored at =index.xml= (with =feed.xml= kept as
-  an alias).  Entry =<id>=s use the full permalink, matching Hugo's
-  =<guid>=.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/d0e9bbe][d0e9bbe]])
-- Per-tag feeds at =/tags/<tag>/index.xml= and tag HTML at
-  =/tags/<tag>/index.html= so aggregators like
-  =planet.emacslife.com= keep resolving.  =--feed= gained optional
-  =title= and =rel-path= arguments for per-tag feed identities.
-  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/8ce257e][8ce257e]])
-- Site tagline is now configurable via
-  =org-bootstrap-publish-site-tagline=.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/5269faa][5269faa]])
+- Feed layout aligned with Hugo's defaults so migrating sites keep their existing RSS subscribers without re-notifying the archive.  Posts now live at =/<section>/<slug>/=, slugs are lowercased, and the Atom feed is mirrored at =index.xml= (with =feed.xml= kept as an alias).  Entry =<id>=s use the full permalink, matching Hugo's =<guid>=.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/d0e9bbe][d0e9bbe]])
+- Per-tag feeds at =/tags/<tag>/index.xml= and tag HTML at =/tags/<tag>/index.html= so aggregators like =planet.emacslife.com= keep resolving.  =--feed= gained optional =title= and =rel-path= arguments for per-tag feed identities.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/8ce257e][8ce257e]])
+- Site tagline is now configurable via =org-bootstrap-publish-site-tagline=.  ([[https://github.com/captainflasmr/org-bootstrap-publish/commit/5269faa][5269faa]])
