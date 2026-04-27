@@ -51,8 +51,22 @@
   :prefix "org-bootstrap-publish-")
 
 (defcustom org-bootstrap-publish-source-file nil
-  "Org file to publish.  Each top-level heading becomes a post."
+  "Org file to publish.  Each top-level heading becomes a post.
+For multi-source aggregator sites, set
+`org-bootstrap-publish-source-files' to a list of files instead;
+that takes precedence over this setting."
   :type '(choice (const :tag "Unset" nil) file))
+
+(defcustom org-bootstrap-publish-source-files nil
+  "List of Org files to aggregate into a single site.
+When non-nil, every file is parsed and the combined post list is
+sorted newest-first.  Useful for umbrella sites that pull together
+content from several per-topic Org sources sitting in one directory.
+Takes precedence over `org-bootstrap-publish-source-file' when set;
+the single-file customisation continues to work for single-source
+sites."
+  :type '(choice (const :tag "Unset" nil)
+                 (repeat file)))
 
 (defcustom org-bootstrap-publish-output-dir
   (expand-file-name "public" default-directory)
@@ -103,6 +117,21 @@ Example:
           (\"Linux\" . \"linux\")))"
   :type '(alist :key-type (string :tag "Label")
                 :value-type (string :tag "Tag")))
+
+(defcustom org-bootstrap-publish-menu-links nil
+  "Alist of (LABEL . URL) pairs to add to the sidebar nav.
+Each entry adds a link to URL between the tag links and the RSS
+link.  URLs are passed through verbatim, so they can be section
+landings (`/blog/'), specific posts (`/blog/about/'), or external
+addresses.  Alist order is preserved.
+
+Example:
+
+  (setq org-bootstrap-publish-menu-links
+        \\='((\"Photos\" . \"/photos/\")
+          (\"About\"  . \"/blog/about-me/\")))"
+  :type '(alist :key-type (string :tag "Label")
+                :value-type (string :tag "URL")))
 
 (defcustom org-bootstrap-publish-publish-todo-states '("DONE")
   "TODO-keyword states whose headings are published.
@@ -530,6 +559,12 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
                 (org-bootstrap-publish--tag-url (cdr entry))
                 (org-bootstrap-publish--escape (car entry))))
       org-bootstrap-publish-menu-tags "")
+     (mapconcat
+      (lambda (entry)
+        (format "        <li class=\"nav-link\"><a href=\"%s\">%s</a></li>\n"
+                (org-bootstrap-publish--escape (cdr entry))
+                (org-bootstrap-publish--escape (car entry))))
+      org-bootstrap-publish-menu-links "")
      (format "        <li><a href=\"%s\">RSS</a></li>\n"
              (org-bootstrap-publish--url "index.xml"))
      "      </ul></nav>\n"
@@ -991,6 +1026,61 @@ see stable identifiers."
    (lambda (p) (member tag (plist-get p :tags)))
    posts))
 
+(defun org-bootstrap-publish--section-root (post)
+  "First path segment of POST's :section, or nil."
+  (let ((s (plist-get post :section)))
+    (and s (not (string-empty-p s))
+         (car (split-string s "/")))))
+
+(defun org-bootstrap-publish--all-section-roots (posts)
+  "Distinct root section names from POSTS, sorted."
+  (let (roots)
+    (dolist (p posts)
+      (let ((r (org-bootstrap-publish--section-root p)))
+        (when (and r (not (member r roots)))
+          (push r roots))))
+    (sort roots #'string<)))
+
+(defun org-bootstrap-publish--posts-in-section (root posts)
+  "Return POSTS whose section is ROOT or a descendant (ROOT/foo)."
+  (cl-remove-if-not
+   (lambda (p)
+     (let ((s (plist-get p :section)))
+       (and s (or (string= s root)
+                  (string-prefix-p (concat root "/") s)))))
+   posts))
+
+(defun org-bootstrap-publish--section-has-landing-p (root posts)
+  "Non-nil if a post already owns /ROOT/ (section=ROOT, slug=index)."
+  (cl-some
+   (lambda (p)
+     (and (string= (or (plist-get p :section) "") root)
+          (string= (or (plist-get p :slug) "") "index")))
+   posts))
+
+(defun org-bootstrap-publish--render-section-page (root posts)
+  (let* ((root-esc (org-bootstrap-publish--escape root))
+         (items (mapconcat
+                 (lambda (p)
+                   (let ((url (org-bootstrap-publish--post-url p))
+                         (title (org-bootstrap-publish--escape (plist-get p :title)))
+                         (date (plist-get p :date)))
+                     (format "<li class=\"mb-2\"><a href=\"%s\">%s</a>%s</li>\n"
+                             url title
+                             (if date
+                                 (format " <span class=\"text-muted small\">&middot; %s</span>"
+                                         (org-bootstrap-publish--human-date date))
+                               ""))))
+                 posts "")))
+    (concat
+     (format "<header class=\"page-header mb-4\"><h2>Section: <code>%s</code></h2>"
+             root-esc)
+     (format "<p class=\"text-muted\">%d post%s</p></header>\n"
+             (length posts) (if (= 1 (length posts)) "" "s"))
+     "<ul class=\"post-list list-unstyled\">\n"
+     items
+     "</ul>\n")))
+
 (defun org-bootstrap-publish--copy-static (source-file out-dir)
   (dolist (name org-bootstrap-publish-static-dirs)
     (let ((src (expand-file-name name (file-name-directory source-file)))
@@ -1074,6 +1164,14 @@ the next full build."
           matching
           (format "%s on %s" tag org-bootstrap-publish-site-title)
           tag-path)))))
+  (dolist (root (org-bootstrap-publish--all-section-roots posts))
+    (unless (org-bootstrap-publish--section-has-landing-p root posts)
+      (let ((matching (org-bootstrap-publish--posts-in-section root posts)))
+        (org-bootstrap-publish--write
+         (expand-file-name (concat root "/index.html") out)
+         (org-bootstrap-publish--page
+          (format "%s | %s" root org-bootstrap-publish-site-title)
+          (org-bootstrap-publish--render-section-page root matching))))))
   (org-bootstrap-publish--write
    (expand-file-name "posts.html" out)
    (org-bootstrap-publish--page
@@ -1097,21 +1195,54 @@ the next full build."
    (expand-file-name "reload-token" out)
    (format "%.6f\n" (float-time))))
 
+(defun org-bootstrap-publish--source-files ()
+  "List of source files to publish, expanded to absolute paths.
+Prefers `org-bootstrap-publish-source-files' (multi-source); falls
+back to the singleton `org-bootstrap-publish-source-file'."
+  (cond
+   (org-bootstrap-publish-source-files
+    (mapcar #'expand-file-name org-bootstrap-publish-source-files))
+   (org-bootstrap-publish-source-file
+    (list (expand-file-name org-bootstrap-publish-source-file)))))
+
+(defun org-bootstrap-publish--parse-all (files)
+  "Parse every file in FILES and return a single newest-first post list.
+Each file's posts share the same shape as the single-file path; the
+combined list is re-sorted by date so cross-file ordering is correct."
+  (let (all)
+    (dolist (f files)
+      (setq all (append all (org-bootstrap-publish--parse-posts f))))
+    (sort all
+          (lambda (a b)
+            (let ((da (plist-get a :date))
+                  (db (plist-get b :date)))
+              (cond ((and da db) (time-less-p db da))
+                    (da t)
+                    (db nil)
+                    (t nil)))))))
+
 ;;;###autoload
 (defun org-bootstrap-publish (&optional source-file output-dir)
   "Publish SOURCE-FILE to OUTPUT-DIR.
-With no arguments, use `org-bootstrap-publish-source-file' (or the
-current org buffer) and `org-bootstrap-publish-output-dir'."
+With no arguments, parse every file in
+`org-bootstrap-publish-source-files' if set, otherwise the
+singleton `org-bootstrap-publish-source-file' (or the current org
+buffer).  Output goes to `org-bootstrap-publish-output-dir'."
   (interactive)
-  (let* ((src (or source-file
-                  (and (derived-mode-p 'org-mode) buffer-file-name)
-                  org-bootstrap-publish-source-file
-                  (user-error "Set `org-bootstrap-publish-source-file' or call from an org buffer")))
+  (let* ((files (cond
+                 (source-file (list (expand-file-name source-file)))
+                 ((org-bootstrap-publish--source-files))
+                 ((and (derived-mode-p 'org-mode) buffer-file-name)
+                  (list buffer-file-name))
+                 (t (user-error "Set `org-bootstrap-publish-source-files' or `-source-file' first"))))
+         (src (car files))
          (out (or output-dir org-bootstrap-publish-output-dir))
          (_   (org-bootstrap-publish--mkdir out))
-         (posts (org-bootstrap-publish--parse-posts src))
+         (posts (org-bootstrap-publish--parse-all files))
          (tag-counts (org-bootstrap-publish--collect-tags posts)))
-    (message "org-bootstrap-publish: parsed %d posts" (length posts))
+    (message "org-bootstrap-publish: parsed %d posts from %d source%s"
+             (length posts) (length files)
+             (if (= 1 (length files)) "" "s"))
     (let ((i 0) (total (length posts))
           (newer nil) (cur posts))
       (while cur
@@ -1150,7 +1281,9 @@ current org buffer) and `org-bootstrap-publish-output-dir'."
     org-bootstrap-publish-highlight-js
     org-bootstrap-publish-publish-todo-states
     org-bootstrap-publish-asset-file
-    org-bootstrap-publish-menu-tags)
+    org-bootstrap-publish-menu-tags
+    org-bootstrap-publish-menu-links
+    org-bootstrap-publish-source-files)
   "Customisation vars propagated to the async build subprocess.")
 
 (defun org-bootstrap-publish--library-dir ()
@@ -1163,13 +1296,17 @@ current org buffer) and `org-bootstrap-publish-output-dir'."
 (defun org-bootstrap-publish--async-eval-form (src out)
   "Build the `--eval' string run inside the child Emacs.
 Replays every custom in `org-bootstrap-publish--async-vars' then
-invokes the synchronous entry point against SRC and OUT."
-  (format "(progn %s (org-bootstrap-publish %S %S))"
-          (mapconcat (lambda (v)
-                       (format "(setq %s '%S)" v (symbol-value v)))
-                     org-bootstrap-publish--async-vars
-                     " ")
-          src out))
+invokes the synchronous entry point.  When the parent has a
+multi-source list configured, that takes precedence; SRC is only
+forwarded for single-source builds so the child uses the same file
+the parent intended."
+  (let ((forwarded (if org-bootstrap-publish-source-files nil src)))
+    (format "(progn %s (org-bootstrap-publish %S %S))"
+            (mapconcat (lambda (v)
+                         (format "(setq %s '%S)" v (symbol-value v)))
+                       org-bootstrap-publish--async-vars
+                       " ")
+            forwarded out)))
 
 (defun org-bootstrap-publish--async-filter (proc string)
   "Append STRING to PROC's buffer and surface progress lines."
@@ -1210,9 +1347,9 @@ area; full subprocess output lives in buffer
   (when (process-live-p org-bootstrap-publish--async-process)
     (user-error "An async build is already running"))
   (let* ((src (or source-file
-                  org-bootstrap-publish-source-file
+                  (car (org-bootstrap-publish--source-files))
                   (and (derived-mode-p 'org-mode) buffer-file-name)
-                  (user-error "Set `org-bootstrap-publish-source-file' first")))
+                  (user-error "Set `org-bootstrap-publish-source-files' or `-source-file' first")))
          (out (or output-dir
                   org-bootstrap-publish-output-dir
                   (user-error "Set `org-bootstrap-publish-output-dir' first")))
@@ -1272,12 +1409,10 @@ area; full subprocess output lives in buffer
     (error nil)))
 
 (defun org-bootstrap-publish--source-buffer-p ()
-  "Non-nil if the current buffer is visiting the configured source file."
+  "Non-nil if the current buffer is visiting any configured source file."
   (and buffer-file-name
-       org-bootstrap-publish-source-file
-       (file-equal-p
-        buffer-file-name
-        (expand-file-name org-bootstrap-publish-source-file))))
+       (let ((files (org-bootstrap-publish--source-files)))
+         (cl-some (lambda (f) (file-equal-p buffer-file-name f)) files))))
 
 (defun org-bootstrap-publish--install-save-hook ()
   "Install the rebuild-on-save hook if this buffer is the source file.
@@ -1291,15 +1426,16 @@ Suitable for `find-file-hook'."
   "Rebuild the post at point plus all listings.
 Intended as an `after-save-hook' while editing the source file."
   (interactive)
-  (let* ((src (or (and (org-bootstrap-publish--source-buffer-p)
-                       buffer-file-name)
-                  org-bootstrap-publish-source-file
-                  (user-error "Set `org-bootstrap-publish-source-file' first")))
+  (let* ((files (or (org-bootstrap-publish--source-files)
+                    (and (org-bootstrap-publish--source-buffer-p)
+                         (list buffer-file-name))
+                    (user-error "Set `org-bootstrap-publish-source-files' or `-source-file' first")))
+         (src   (car files))
          (out (or org-bootstrap-publish-output-dir
                   (user-error "Set `org-bootstrap-publish-output-dir' first")))
          (title (and (org-bootstrap-publish--source-buffer-p)
                      (org-bootstrap-publish--current-post-title)))
-         (posts (org-bootstrap-publish--parse-posts src))
+         (posts (org-bootstrap-publish--parse-all files))
          (tag-counts (org-bootstrap-publish--collect-tags posts))
          (target (and title
                       (cl-find title posts
@@ -1340,12 +1476,15 @@ pick up the hook."
                        (read-number "Port: "
                                     org-bootstrap-publish-serve-port))))
   (let* ((port (or port org-bootstrap-publish-serve-port))
-         (src (or org-bootstrap-publish-source-file
-                  (and (derived-mode-p 'org-mode) buffer-file-name)
-                  (user-error "Set `org-bootstrap-publish-source-file' first")))
+         (files (or (org-bootstrap-publish--source-files)
+                    (and (derived-mode-p 'org-mode) buffer-file-name
+                         (list buffer-file-name))
+                    (user-error "Set `org-bootstrap-publish-source-files' or `-source-file' first")))
+         (src (car files))
          (out (or org-bootstrap-publish-output-dir
                   (user-error "Set `org-bootstrap-publish-output-dir' first"))))
-    (unless org-bootstrap-publish-source-file
+    (unless (or org-bootstrap-publish-source-file
+                org-bootstrap-publish-source-files)
       (setq org-bootstrap-publish-source-file (expand-file-name src)))
     (when (process-live-p org-bootstrap-publish--server-process)
       (user-error "Server already running; call `org-bootstrap-publish-stop' first"))
@@ -1359,13 +1498,14 @@ pick up the hook."
          (org-bootstrap-publish--start-http-server out port)
          (add-hook 'find-file-hook
                    #'org-bootstrap-publish--install-save-hook)
-         (let ((buf (find-file-noselect src)))
-           (with-current-buffer buf
-             (add-hook 'after-save-hook
-                       #'org-bootstrap-publish-rebuild-current-post nil t))
-           (browse-url (format "http://localhost:%d/" port))
-           (message "org-bootstrap-publish-serve: serving %s on :%d; rebuild hook on %s (stop with M-x org-bootstrap-publish-stop)"
-                    out port (buffer-name buf))))))))
+         (dolist (f files)
+           (let ((buf (find-file-noselect f)))
+             (with-current-buffer buf
+               (add-hook 'after-save-hook
+                         #'org-bootstrap-publish-rebuild-current-post nil t))))
+         (browse-url (format "http://localhost:%d/" port))
+         (message "org-bootstrap-publish-serve: serving %s on :%d; rebuild hook on %d source file%s (stop with M-x org-bootstrap-publish-stop)"
+                  out port (length files) (if (= 1 (length files)) "" "s")))))))
 
 ;;;###autoload
 (defun org-bootstrap-publish-stop ()

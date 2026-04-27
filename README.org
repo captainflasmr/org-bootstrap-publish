@@ -84,6 +84,34 @@ emacs --batch \
 
 The interactive =M-x org-bootstrap-publish= still uses whatever your =init.el= sets — typically the emacs blog — so day-to-day editing of =README.org= continues to work without thinking about it.  A second site is one shell command away when you need it.
 
+** Multi-source sites
+
+A single site can pull posts from several Org files at once.  Set =org-bootstrap-publish-source-files= (plural) to the list — it takes precedence over =-source-file= when both are set.  Headings from every file are merged, sorted by =EXPORT_HUGO_LASTMOD=, and treated as if they came from one source.  Useful for an umbrella site that aggregates an art blog, a Linux blog, an Emacs blog, etc.
+
+#+begin_src elisp
+(setq org-bootstrap-publish-source-files
+      '("~/publish/hugo-unified/blog.org"
+        "~/publish/hugo-unified/art.org"
+        "~/publish/hugo-unified/linux.org"
+        "~/publish/hugo-unified/kate.org"
+        "~/publish/hugo-unified/README.org"))
+#+end_src
+
+The save-hook rebuild walks all configured files looking for the buffer being saved, so editing any one of them still triggers an incremental rebuild.
+
+The umbrella site usually wants the sidebar to link section landings (=/blog/=, =/photos/=) and specific posts rather than the per-tag links in =org-bootstrap-publish-menu-tags=.  =org-bootstrap-publish-menu-links= takes an alist of =(label . url)= pairs and renders them in the sidebar as raw URLs:
+
+#+begin_src elisp
+(setq org-bootstrap-publish-menu-links
+      '(("gallery"    . "/art--gallery/")
+        ("photos"     . "/photos/")
+        ("blog"       . "/blog/")
+        ("emacs"      . "/tags/emacs/")
+        ("about"      . "/blog/posts--about-me/")))
+#+end_src
+
+Section landings (=/blog/=, =/photos/=, =/photos/2003/=, etc.) are generated automatically — one listing per distinct =EXPORT_HUGO_SECTION= root — unless a heading with =EXPORT_FILE_NAME: index= already owns that URL.
+
 ** Selective static copy
 
 =org-bootstrap-publish-static-dirs= controls which subtrees of the source file's directory are copied into =public/=.  The default is the whole =static/= folder, which is fine when one folder serves one site.  Set it to a list of nested paths to copy only what a given site needs:
@@ -101,6 +129,8 @@ The destination directory tree is created automatically, so nested entries work 
 | Variable                                      | Meaning                                            |
 |-----------------------------------------------+----------------------------------------------------|
 | =org-bootstrap-publish-source-file=           | The Org file to publish.                           |
+| =org-bootstrap-publish-source-files=          | List of Org files to publish (overrides above).    |
+| =org-bootstrap-publish-menu-links=            | Sidebar =(label . url)= alist for arbitrary links. |
 | =org-bootstrap-publish-output-dir=            | Output directory (default =public/= under pwd).    |
 | =org-bootstrap-publish-site-title=            | Sidebar title.                                     |
 | =org-bootstrap-publish-site-tagline=          | Sidebar sub-title.                                 |
