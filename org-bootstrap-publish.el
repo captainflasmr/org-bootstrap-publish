@@ -618,14 +618,18 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
      "</article>\n"
      "</div>\n")))
 
-(defun org-bootstrap-publish--page-url (n)
-  "URL for index page N (1-based).  Page 1 is the site root."
-  (if (<= n 1)
-      (org-bootstrap-publish--url "")
-    (org-bootstrap-publish--url "page/" (number-to-string n) "/")))
+(defun org-bootstrap-publish--page-url (n &optional base)
+  "URL for paginated listing page N (1-based).
+BASE is a trailing-slash path like \"blog/\"; nil means the site root."
+  (let ((base (or base "")))
+    (if (<= n 1)
+        (org-bootstrap-publish--url base)
+      (org-bootstrap-publish--url base "page/" (number-to-string n) "/"))))
 
-(defun org-bootstrap-publish--pagination-nav (page total)
-  "Prev / page-N-of-M / Next nav for index page PAGE of TOTAL."
+(defun org-bootstrap-publish--pagination-nav (page total &optional base)
+  "Prev / page-N-of-M / Next nav for listing PAGE of TOTAL.
+BASE is forwarded to `org-bootstrap-publish--page-url' so the same
+nav works for the home index and per-section landings."
   (if (<= total 1)
       ""
     (let* ((prev (when (> page 1) (1- page)))
@@ -635,13 +639,13 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
        "<ul class=\"pagination justify-content-center\">\n"
        (if prev
            (format "<li class=\"page-item\"><a class=\"page-link\" href=\"%s\">&laquo; Newer</a></li>\n"
-                   (org-bootstrap-publish--page-url prev))
+                   (org-bootstrap-publish--page-url prev base))
          "<li class=\"page-item disabled\"><span class=\"page-link\">&laquo; Newer</span></li>\n")
        (format "<li class=\"page-item active\" aria-current=\"page\"><span class=\"page-link\">Page %d of %d</span></li>\n"
                page total)
        (if next
            (format "<li class=\"page-item\"><a class=\"page-link\" href=\"%s\">Older &raquo;</a></li>\n"
-                   (org-bootstrap-publish--page-url next))
+                   (org-bootstrap-publish--page-url next base))
          "<li class=\"page-item disabled\"><span class=\"page-link\">Older &raquo;</span></li>\n")
        "</ul>\n"
        "</nav>\n"))))
@@ -1058,28 +1062,27 @@ see stable identifiers."
           (string= (or (plist-get p :slug) "") "index")))
    posts))
 
-(defun org-bootstrap-publish--render-section-page (root posts)
+(defun org-bootstrap-publish--render-section-page (root posts &optional page total)
   (let* ((root-esc (org-bootstrap-publish--escape root))
-         (items (mapconcat
-                 (lambda (p)
-                   (let ((url (org-bootstrap-publish--post-url p))
-                         (title (org-bootstrap-publish--escape (plist-get p :title)))
-                         (date (plist-get p :date)))
-                     (format "<li class=\"mb-2\"><a href=\"%s\">%s</a>%s</li>\n"
-                             url title
-                             (if date
-                                 (format " <span class=\"text-muted small\">&middot; %s</span>"
-                                         (org-bootstrap-publish--human-date date))
-                               ""))))
-                 posts "")))
+         (page  (or page 1))
+         (per   org-bootstrap-publish-posts-per-page)
+         (total (or total (max 1 (ceiling (/ (float (length posts)) per)))))
+         (start (* (1- page) per))
+         (end   (min (+ start per) (length posts)))
+         (slice (cl-subseq posts start end))
+         (cards (mapconcat #'org-bootstrap-publish--card slice ""))
+         (header (if (= page 1)
+                     (format "<h2>Section: <code>%s</code></h2>" root-esc)
+                   (format "<h2>Section: <code>%s</code> &mdash; page %d of %d</h2>"
+                           root-esc page total))))
     (concat
-     (format "<header class=\"page-header mb-4\"><h2>Section: <code>%s</code></h2>"
-             root-esc)
+     (format "<header class=\"page-header mb-4\">%s" header)
      (format "<p class=\"text-muted\">%d post%s</p></header>\n"
              (length posts) (if (= 1 (length posts)) "" "s"))
-     "<ul class=\"post-list list-unstyled\">\n"
-     items
-     "</ul>\n")))
+     "<div class=\"row\">\n"
+     cards
+     "</div>\n"
+     (org-bootstrap-publish--pagination-nav page total (concat root "/")))))
 
 (defun org-bootstrap-publish--copy-static (source-file out-dir)
   (dolist (name org-bootstrap-publish-static-dirs)
@@ -1166,12 +1169,24 @@ the next full build."
           tag-path)))))
   (dolist (root (org-bootstrap-publish--all-section-roots posts))
     (unless (org-bootstrap-publish--section-has-landing-p root posts)
-      (let ((matching (org-bootstrap-publish--posts-in-section root posts)))
-        (org-bootstrap-publish--write
-         (expand-file-name (concat root "/index.html") out)
-         (org-bootstrap-publish--page
-          (format "%s | %s" root org-bootstrap-publish-site-title)
-          (org-bootstrap-publish--render-section-page root matching))))))
+      (let* ((matching (org-bootstrap-publish--posts-in-section root posts))
+             (per      org-bootstrap-publish-posts-per-page)
+             (total    (max 1 (ceiling (/ (float (length matching)) per)))))
+        (dotimes (i total)
+          (let* ((page (1+ i))
+                 (rel  (if (= page 1)
+                           (concat root "/index.html")
+                         (concat root "/page/" (number-to-string page) "/index.html")))
+                 (title (if (= page 1)
+                            (format "%s | %s" root org-bootstrap-publish-site-title)
+                          (format "%s page %d | %s" root page
+                                  org-bootstrap-publish-site-title))))
+            (org-bootstrap-publish--write
+             (expand-file-name rel out)
+             (org-bootstrap-publish--page
+              title
+              (org-bootstrap-publish--render-section-page
+               root matching page total))))))))
   (org-bootstrap-publish--write
    (expand-file-name "posts.html" out)
    (org-bootstrap-publish--page
