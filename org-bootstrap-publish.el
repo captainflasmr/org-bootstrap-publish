@@ -73,6 +73,24 @@ sites."
   "Directory into which HTML is written."
   :type 'directory)
 
+(defcustom org-bootstrap-publish-cache-dir
+  (expand-file-name "org-bootstrap-publish/"
+                    (or (getenv "XDG_CACHE_HOME") "~/.cache"))
+  "Base directory for cross-build `ox-html' output cache.
+Each output dir gets its own subdirectory inside this path,
+keyed by a hash of the output dir's absolute path, so multiple
+sites publishing through the same Emacs do not collide.
+
+When non-nil, every unique post body is rendered through ox-html
+once and cached on disk; subsequent builds reuse the cached HTML
+for unchanged bodies, which is the dominant cost of a full
+rebuild.  Stale entries are swept at the end of each build.
+
+Set to nil to disable caching (renders every post from scratch
+on every build).  Located outside the output dir so cache files
+are not deployed."
+  :type '(choice directory (const :tag "Disabled" nil)))
+
 (defcustom org-bootstrap-publish-site-title "My Site"
   "Top-of-sidebar site title."
   :type 'string)
@@ -105,16 +123,11 @@ Pages project site.  Must start and end with a slash."
   :type '(repeat string))
 
 (defcustom org-bootstrap-publish-menu-tags nil
-  "Alist of (LABEL . TAG) pairs to promote into the sidebar nav.
-Each entry adds a link to TAG's page between the main nav items
-and the RSS link, so frequently-used tags are one click away.
-Alist order is preserved.
-
-Example:
-
-  (setq org-bootstrap-publish-menu-tags
-        \\='((\"Emacs\" . \"emacs\")
-          (\"Linux\" . \"linux\")))"
+  "Deprecated.  Use `org-bootstrap-publish-menu-links' instead.
+Entries here are translated to `(LABEL \"/tags/TAG/\" :style list)'
+form and merged into the sidebar after `-menu-links'.  Kept for
+backwards compatibility — new configs should put everything in
+`-menu-links' and use `:style' to drive the destination's layout."
   :type '(alist :key-type (string :tag "Label")
                 :value-type (string :tag "Tag")))
 
@@ -124,26 +137,28 @@ Example:
   (LABEL . URL)               ; short form
   (LABEL URL PROP VAL ...)    ; long form, plist tail
 
-Each entry adds a link to URL between the tag links and the RSS
-link.  URLs are passed through verbatim, so they can be section
-landings (`/blog/'), specific posts (`/blog/about/'), or external
-addresses.  Alist order is preserved.
+Each entry adds a link to URL between the main nav and the RSS
+link.  URLs pass through verbatim, so they can be section
+landings (`/blog/'), tag pages (`/tags/emacs/'), specific posts
+(`/blog/about/'), or external addresses.  Alist order is
+preserved.
 
 Recognised plist keys (long form only):
 
-  :style cards   ; render the destination section as Bootstrap
-                 ; cards (the default for generated section landings)
+  :style cards   ; render the destination as Bootstrap cards
   :style list    ; render the destination as a flat bullet list
 
-`:style' only takes effect when URL points to a section landing
-this package generates (e.g. `/blog/').  Tag pages, post URLs,
-and external links ignore it.
+`:style' takes effect when URL points to a generated section
+landing or tag page; post URLs and external links ignore it.
+Section landings default to `cards', tag pages default to `list',
+matching the historical behaviour of each.
 
 Example:
 
   (setq org-bootstrap-publish-menu-links
-        \\='((\"Photos\" \"/photos/\" :style cards)
-          (\"Blog\"   \"/blog/\"   :style list)
+        \\='((\"Photos\" \"/photos/\"     :style cards)
+          (\"Blog\"   \"/blog/\"       :style list)
+          (\"Emacs\"  \"/tags/emacs/\" :style cards)
           (\"About\"  . \"/blog/about-me/\")))"
   :type '(repeat sexp))
 
@@ -461,23 +476,105 @@ substring."
            body t t)))
   body)
 
+(defconst org-bootstrap-publish--cache-version 1
+  "Bump to invalidate every cached `--org->html' result.
+Increment when the renderer's output changes for the same input
+(e.g. shortcode rewriter, bootstrapifier, or ox-html settings).")
+
+(defvar org-bootstrap-publish--cache-current-dir nil
+  "Resolved per-site cache directory bound by the entry point.
+nil disables the cache for the current call.")
+
+(defvar org-bootstrap-publish--cache-used nil
+  "Hash table of cache keys touched during the current build.
+Non-nil enables sweeping of stale entries.")
+
+(defvar org-bootstrap-publish--cache-hits 0)
+(defvar org-bootstrap-publish--cache-misses 0)
+
+(defvar org-bootstrap-publish--card-memo nil
+  "Per-build hash table memoizing post → card HTML.  nil disables.")
+
+(defvar org-bootstrap-publish--feed-entry-memo nil
+  "Per-build hash table memoizing post → atom <entry> block.  nil disables.")
+
+(defun org-bootstrap-publish--cache-effective-dir (out)
+  "Per-site cache directory under `org-bootstrap-publish-cache-dir', or nil."
+  (when org-bootstrap-publish-cache-dir
+    (expand-file-name
+     (secure-hash 'sha1 (expand-file-name out))
+     org-bootstrap-publish-cache-dir)))
+
+(defun org-bootstrap-publish--cache-key (str)
+  (secure-hash 'sha256
+               (format "v%d:%s" org-bootstrap-publish--cache-version str)))
+
+(defun org-bootstrap-publish--cache-path (key)
+  (and org-bootstrap-publish--cache-current-dir
+       (expand-file-name (concat key ".html")
+                         org-bootstrap-publish--cache-current-dir)))
+
+(defun org-bootstrap-publish--cache-lookup (str)
+  "Return cached HTML for STR, or nil on miss."
+  (when org-bootstrap-publish--cache-current-dir
+    (let* ((key  (org-bootstrap-publish--cache-key str))
+           (path (org-bootstrap-publish--cache-path key)))
+      (when org-bootstrap-publish--cache-used
+        (puthash key t org-bootstrap-publish--cache-used))
+      (when (file-exists-p path)
+        (cl-incf org-bootstrap-publish--cache-hits)
+        (with-temp-buffer
+          (insert-file-contents path)
+          (buffer-string))))))
+
+(defun org-bootstrap-publish--cache-store (str html)
+  "Write HTML for STR into the cache; return HTML."
+  (when (and org-bootstrap-publish--cache-current-dir str)
+    (cl-incf org-bootstrap-publish--cache-misses)
+    (let* ((key  (org-bootstrap-publish--cache-key str))
+           (path (org-bootstrap-publish--cache-path key)))
+      (org-bootstrap-publish--mkdir org-bootstrap-publish--cache-current-dir)
+      (with-temp-file path (insert html))))
+  html)
+
+(defun org-bootstrap-publish--cache-sweep ()
+  "Delete cache files not touched during the current build.  Returns count."
+  (if (not (and org-bootstrap-publish--cache-current-dir
+                org-bootstrap-publish--cache-used
+                (file-directory-p org-bootstrap-publish--cache-current-dir)))
+      0
+    (let ((removed 0))
+      (dolist (f (directory-files
+                  org-bootstrap-publish--cache-current-dir t "\\.html\\'"))
+        (let ((key (file-name-base f)))
+          (unless (gethash key org-bootstrap-publish--cache-used)
+            (delete-file f)
+            (cl-incf removed))))
+      removed)))
+
 (defun org-bootstrap-publish--org->html (body)
-  "Render org BODY string to HTML via ox-html, body-only."
+  "Render org BODY string to HTML via ox-html, body-only.
+Results are cached under `org-bootstrap-publish--cache-current-dir'
+when that variable is bound to a directory; cached entries persist
+across builds and survive the sweep at the end of each build."
   (if (or (null body) (string-empty-p (string-trim body)))
       ""
-    (let ((org-export-with-toc nil)
-          (org-export-with-section-numbers nil)
-          (org-export-with-broken-links t)
-          (org-export-with-sub-superscripts '{})
-          (org-export-use-babel nil)
-          (org-confirm-babel-evaluate nil)
-          (org-html-htmlize-output-type nil)
-          (org-html-container-element "section")
-          (inhibit-message t))
-      (org-bootstrap-publish--bootstrapify
-       (org-export-string-as
-        (org-bootstrap-publish--rewrite-shortcodes body)
-        'html t)))))
+    (or (org-bootstrap-publish--cache-lookup body)
+        (org-bootstrap-publish--cache-store
+         body
+         (let ((org-export-with-toc nil)
+               (org-export-with-section-numbers nil)
+               (org-export-with-broken-links t)
+               (org-export-with-sub-superscripts '{})
+               (org-export-use-babel nil)
+               (org-confirm-babel-evaluate nil)
+               (org-html-htmlize-output-type nil)
+               (org-html-container-element "section")
+               (inhibit-message t))
+           (org-bootstrap-publish--bootstrapify
+            (org-export-string-as
+             (org-bootstrap-publish--rewrite-shortcodes body)
+             'html t)))))))
 
 ;;;; Templates
 
@@ -569,17 +666,11 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
              (org-bootstrap-publish--url "tags.html"))
      (mapconcat
       (lambda (entry)
-        (format "        <li class=\"nav-tag\"><a href=\"%s\">%s</a></li>\n"
-                (org-bootstrap-publish--tag-url (cdr entry))
-                (org-bootstrap-publish--escape (car entry))))
-      org-bootstrap-publish-menu-tags "")
-     (mapconcat
-      (lambda (entry)
         (format "        <li class=\"nav-link\"><a href=\"%s\">%s</a></li>\n"
                 (org-bootstrap-publish--escape
                  (org-bootstrap-publish--menu-link-url entry))
                 (org-bootstrap-publish--escape (car entry))))
-      org-bootstrap-publish-menu-links "")
+      (org-bootstrap-publish--all-menu-entries) "")
      (format "        <li><a href=\"%s\">RSS</a></li>\n"
              (org-bootstrap-publish--url "index.xml"))
      "      </ul></nav>\n"
@@ -605,7 +696,7 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
      "</body>\n"
      "</html>\n")))
 
-(defun org-bootstrap-publish--card (post)
+(defun org-bootstrap-publish--card-build (post)
   (let* ((url    (org-bootstrap-publish--post-url post))
          (title  (org-bootstrap-publish--escape (plist-get post :title)))
          (date-h (org-bootstrap-publish--human-date (plist-get post :date)))
@@ -632,6 +723,14 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
      "</div>\n"
      "</article>\n"
      "</div>\n")))
+
+(defun org-bootstrap-publish--card (post)
+  "Card HTML for POST, memoized when `--card-memo' is bound."
+  (if org-bootstrap-publish--card-memo
+      (or (gethash post org-bootstrap-publish--card-memo)
+          (puthash post (org-bootstrap-publish--card-build post)
+                   org-bootstrap-publish--card-memo))
+    (org-bootstrap-publish--card-build post)))
 
 (defun org-bootstrap-publish--page-url (n &optional base)
   "URL for paginated listing page N (1-based).
@@ -786,28 +885,44 @@ static/<section>/ relative to SOURCE-FILE."
      (org-bootstrap-publish--post-nav newer older)
      "</article>\n")))
 
-(defun org-bootstrap-publish--render-tag-page (tag posts)
-  (let* ((tag-esc (org-bootstrap-publish--escape tag))
-         (items (mapconcat
-                 (lambda (p)
-                   (let ((url (org-bootstrap-publish--post-url p))
-                         (title (org-bootstrap-publish--escape (plist-get p :title)))
-                         (date (plist-get p :date)))
-                     (format "<li class=\"mb-2\"><a href=\"%s\">%s</a>%s</li>\n"
-                             url title
-                             (if date
-                                 (format " <span class=\"text-muted small\">&middot; %s</span>"
-                                         (org-bootstrap-publish--human-date date))
-                               ""))))
-                 posts "")))
+(defun org-bootstrap-publish--tag-header (tag posts)
+  (let ((tag-esc (org-bootstrap-publish--escape tag)))
     (concat
      (format "<header class=\"page-header mb-4\"><h2>Posts tagged <code>#%s</code></h2>"
              tag-esc)
      (format "<p class=\"text-muted\">%d post%s</p></header>\n"
-             (length posts) (if (= 1 (length posts)) "" "s"))
+             (length posts) (if (= 1 (length posts)) "" "s")))))
+
+(defun org-bootstrap-publish--render-tag-page-list (tag posts)
+  (let ((items (mapconcat
+                (lambda (p)
+                  (let ((url (org-bootstrap-publish--post-url p))
+                        (title (org-bootstrap-publish--escape (plist-get p :title)))
+                        (date (plist-get p :date)))
+                    (format "<li class=\"mb-2\"><a href=\"%s\">%s</a>%s</li>\n"
+                            url title
+                            (if date
+                                (format " <span class=\"text-muted small\">&middot; %s</span>"
+                                        (org-bootstrap-publish--human-date date))
+                              ""))))
+                posts "")))
+    (concat
+     (org-bootstrap-publish--tag-header tag posts)
      "<ul class=\"post-list list-unstyled\">\n"
      items
      "</ul>\n")))
+
+(defun org-bootstrap-publish--render-tag-page-cards (tag posts)
+  (concat
+   (org-bootstrap-publish--tag-header tag posts)
+   "<div class=\"row\">\n"
+   (mapconcat #'org-bootstrap-publish--card posts "")
+   "</div>\n"))
+
+(defun org-bootstrap-publish--render-tag-page (tag posts)
+  (if (eq (org-bootstrap-publish--tag-style tag) 'cards)
+      (org-bootstrap-publish--render-tag-page-cards tag posts)
+    (org-bootstrap-publish--render-tag-page-list tag posts)))
 
 (defun org-bootstrap-publish--render-archive (posts)
   "Render a flat, year-grouped archive of every post."
@@ -883,21 +998,27 @@ see stable identifiers."
          (entries
           (mapconcat
            (lambda (p)
-             (let* ((link (concat url (org-bootstrap-publish--post-path p)))
-                    (date (org-bootstrap-publish--iso
-                           (or (plist-get p :date) (current-time))))
-                    (title (org-bootstrap-publish--escape (plist-get p :title)))
-                    (content (org-bootstrap-publish--escape
-                              (org-bootstrap-publish--org->html
-                               (plist-get p :body)))))
-               (format (concat "<entry>\n"
-                               "<title>%s</title>\n"
-                               "<link href=\"%s\"/>\n"
-                               "<id>%s</id>\n"
-                               "<updated>%s</updated>\n"
-                               "<content type=\"html\">%s</content>\n"
-                               "</entry>\n")
-                       title link link date content)))
+             (or (and org-bootstrap-publish--feed-entry-memo
+                      (gethash p org-bootstrap-publish--feed-entry-memo))
+                 (let* ((link (concat url (org-bootstrap-publish--post-path p)))
+                        (date (org-bootstrap-publish--iso
+                               (or (plist-get p :date) (current-time))))
+                        (title (org-bootstrap-publish--escape (plist-get p :title)))
+                        (content (org-bootstrap-publish--escape
+                                  (org-bootstrap-publish--org->html
+                                   (plist-get p :body)))))
+                   (let ((entry
+                          (format (concat "<entry>\n"
+                                          "<title>%s</title>\n"
+                                          "<link href=\"%s\"/>\n"
+                                          "<id>%s</id>\n"
+                                          "<updated>%s</updated>\n"
+                                          "<content type=\"html\">%s</content>\n"
+                                          "</entry>\n")
+                                  title link link date content)))
+                     (when org-bootstrap-publish--feed-entry-memo
+                       (puthash p entry org-bootstrap-publish--feed-entry-memo))
+                     entry))))
            recent "")))
     (concat
      "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
@@ -1057,20 +1178,45 @@ see stable identifiers."
   (let ((rest (cdr entry)))
     (and (consp rest) (cdr rest))))
 
+(defun org-bootstrap-publish--all-menu-entries ()
+  "Combined sidebar entries from `-menu-links' plus translated `-menu-tags'."
+  (append
+   org-bootstrap-publish-menu-links
+   (mapcar (lambda (e)
+             (list (car e)
+                   (org-bootstrap-publish--tag-url (cdr e))
+                   :style 'list))
+           org-bootstrap-publish-menu-tags)))
+
+(defun org-bootstrap-publish--menu-style-for-url (url present-default absent-default)
+  "Layout style for URL.
+Walks `--all-menu-entries' for an entry whose URL matches.  An
+explicit `:style' on a matching entry wins; otherwise return
+PRESENT-DEFAULT if URL is in the menu, ABSENT-DEFAULT if not."
+  (let ((found nil) (style nil))
+    (dolist (entry (org-bootstrap-publish--all-menu-entries))
+      (let ((u  (org-bootstrap-publish--menu-link-url entry))
+            (pl (org-bootstrap-publish--menu-link-plist entry)))
+        (when (and u (string= u url))
+          (setq found t)
+          (when pl
+            (let ((s (plist-get pl :style)))
+              (when (memq s '(cards list))
+                (setq style s)))))))
+    (or style (if found present-default absent-default))))
+
 (defun org-bootstrap-publish--section-style-for-root (root)
-  "Style symbol (`cards' or `list') for ROOT, looked up via menu-links.
-Returns `cards' when no entry matches, no `:style' is set, or
-multiple entries collide."
-  (let ((target (concat "/" root "/"))
-        (style 'cards))
-    (dolist (entry org-bootstrap-publish-menu-links)
-      (let ((url (org-bootstrap-publish--menu-link-url entry))
-            (pl  (org-bootstrap-publish--menu-link-plist entry)))
-        (when (and url (string= url target) pl)
-          (let ((s (plist-get pl :style)))
-            (when (memq s '(cards list))
-              (setq style s))))))
-    style))
+  "Layout style for section ROOT.  Always defaults to `cards'."
+  (org-bootstrap-publish--menu-style-for-url
+   (org-bootstrap-publish--url root "/") 'cards 'cards))
+
+(defun org-bootstrap-publish--tag-style (tag)
+  "Layout style for TAG's page.
+Tags promoted into the sidebar via `-menu-links' default to
+`cards'; tags not in the sidebar default to `list', matching the
+historical bullet-list behaviour."
+  (org-bootstrap-publish--menu-style-for-url
+   (org-bootstrap-publish--tag-url tag) 'cards 'list))
 
 (defun org-bootstrap-publish--section-root (post)
   "First path segment of POST's :section, or nil."
@@ -1330,6 +1476,15 @@ buffer).  Output goes to `org-bootstrap-publish-output-dir'."
          (src (car files))
          (out (or output-dir org-bootstrap-publish-output-dir))
          (_   (org-bootstrap-publish--mkdir out))
+         (org-bootstrap-publish--cache-current-dir
+          (org-bootstrap-publish--cache-effective-dir out))
+         (org-bootstrap-publish--cache-used
+          (and org-bootstrap-publish--cache-current-dir
+               (make-hash-table :test 'equal)))
+         (org-bootstrap-publish--cache-hits 0)
+         (org-bootstrap-publish--cache-misses 0)
+         (org-bootstrap-publish--card-memo (make-hash-table :test 'eq))
+         (org-bootstrap-publish--feed-entry-memo (make-hash-table :test 'eq))
          (posts (org-bootstrap-publish--parse-all files))
          (tag-counts (org-bootstrap-publish--collect-tags posts)))
     (message "org-bootstrap-publish: parsed %d posts from %d source%s"
@@ -1347,6 +1502,14 @@ buffer).  Output goes to `org-bootstrap-publish-output-dir'."
     (org-bootstrap-publish--write-listings posts tag-counts out)
     (org-bootstrap-publish--copy-assets out)
     (org-bootstrap-publish--copy-static src out)
+    (let ((swept (org-bootstrap-publish--cache-sweep)))
+      (when org-bootstrap-publish--cache-current-dir
+        (message "org-bootstrap-publish: cache %d hit%s, %d miss%s, %d swept (%s)"
+                 org-bootstrap-publish--cache-hits
+                 (if (= 1 org-bootstrap-publish--cache-hits) "" "s")
+                 org-bootstrap-publish--cache-misses
+                 (if (= 1 org-bootstrap-publish--cache-misses) "" "es")
+                 swept org-bootstrap-publish--cache-current-dir)))
     (message "org-bootstrap-publish: wrote %d posts and %d tags to %s"
              (length posts) (length tag-counts) out)))
 
@@ -1375,7 +1538,8 @@ buffer).  Output goes to `org-bootstrap-publish-output-dir'."
     org-bootstrap-publish-asset-file
     org-bootstrap-publish-menu-tags
     org-bootstrap-publish-menu-links
-    org-bootstrap-publish-source-files)
+    org-bootstrap-publish-source-files
+    org-bootstrap-publish-cache-dir)
   "Customisation vars propagated to the async build subprocess.")
 
 (defun org-bootstrap-publish--library-dir ()
@@ -1525,6 +1689,8 @@ Intended as an `after-save-hook' while editing the source file."
          (src   (car files))
          (out (or org-bootstrap-publish-output-dir
                   (user-error "Set `org-bootstrap-publish-output-dir' first")))
+         (org-bootstrap-publish--cache-current-dir
+          (org-bootstrap-publish--cache-effective-dir out))
          (title (and (org-bootstrap-publish--source-buffer-p)
                      (org-bootstrap-publish--current-post-title)))
          (posts (org-bootstrap-publish--parse-all files))
