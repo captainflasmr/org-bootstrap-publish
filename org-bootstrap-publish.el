@@ -174,6 +174,13 @@ publish every heading regardless of state."
   "Directories, relative to the source file, copied verbatim into the output."
   :type '(repeat string))
 
+(defcustom org-bootstrap-publish-disqus-shortname nil
+  "Disqus shortname for the comment thread embedded under each post.
+nil disables the embed; any non-empty string enables it.  The
+injected script skips `localhost'/`127.0.0.1' so the dev server
+doesn't create stray threads under your account."
+  :type '(choice (const :tag "Disabled" nil) string))
+
 (defcustom org-bootstrap-publish-shortcodes nil
   "Alist of (NAME . FUNCTION) registering custom Hugo-style shortcodes.
 NAME is a symbol matching the shortcode name in `{{< NAME ... >}}'.
@@ -866,6 +873,24 @@ one.  Either may be nil."
        "</div>\n"
        "</nav>\n"))))
 
+(defun org-bootstrap-publish--disqus-snippet ()
+  "Return the Disqus thread HTML snippet, or \"\" when not configured.
+The injected script skips localhost so the dev server doesn't
+create stray comment threads under your shortname."
+  (if (or (null org-bootstrap-publish-disqus-shortname)
+          (string-empty-p org-bootstrap-publish-disqus-shortname))
+      ""
+    (format
+     (concat
+      "<div id=\"disqus_thread\" class=\"mt-4\"></div>\n"
+      "<script>(function(){"
+      "if(/^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname))return;"
+      "var d=document.createElement('script');d.async=true;"
+      "d.src='https://%s.disqus.com/embed.js';"
+      "(document.head||document.body).appendChild(d);"
+      "})();</script>\n")
+     org-bootstrap-publish-disqus-shortname)))
+
 (defun org-bootstrap-publish--render-post (post &optional newer older)
   (let* ((title  (org-bootstrap-publish--escape (plist-get post :title)))
          (date   (plist-get post :date))
@@ -887,6 +912,7 @@ one.  Either may be nil."
      (org-bootstrap-publish--post-nav newer older)
      (format "<div class=\"post-body\">%s</div>\n" body)
      (org-bootstrap-publish--post-nav newer older)
+     (org-bootstrap-publish--disqus-snippet)
      "</article>\n")))
 
 (defun org-bootstrap-publish--gallery-images (source-file section)
@@ -940,6 +966,7 @@ static/<section>/ relative to SOURCE-FILE."
         "<script src=\"https://cdn.jsdelivr.net/npm/imagesloaded@5/imagesloaded.pkgd.min.js\"></script>\n"
         "<script>(function(){var g=document.querySelector('.gallery-grid');if(!g||typeof Masonry==='undefined')return;var m=new Masonry(g,{percentPosition:true});if(typeof imagesLoaded==='function'){imagesLoaded(g).on('progress',function(){m.layout();});}})();</script>\n"))
      (org-bootstrap-publish--post-nav newer older)
+     (org-bootstrap-publish--disqus-snippet)
      "</article>\n")))
 
 (defun org-bootstrap-publish--tag-header (tag posts)
@@ -1596,7 +1623,8 @@ buffer).  Output goes to `org-bootstrap-publish-output-dir'."
     org-bootstrap-publish-menu-tags
     org-bootstrap-publish-menu-links
     org-bootstrap-publish-source-files
-    org-bootstrap-publish-cache-dir)
+    org-bootstrap-publish-cache-dir
+    org-bootstrap-publish-disqus-shortname)
   "Customisation vars propagated to the async build subprocess.")
 
 (defun org-bootstrap-publish--library-dir ()
