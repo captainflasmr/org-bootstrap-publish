@@ -174,6 +174,20 @@ publish every heading regardless of state."
   "Directories, relative to the source file, copied verbatim into the output."
   :type '(repeat string))
 
+(defcustom org-bootstrap-publish-shortcodes nil
+  "Alist of (NAME . FUNCTION) registering custom Hugo-style shortcodes.
+NAME is a symbol matching the shortcode name in `{{< NAME ... >}}'.
+FUNCTION receives a single plist argument carrying the parsed
+`key=\"value\"' pairs (under keyword keys, e.g. `:src \"foo\"'),
+or nil for argless shortcodes, and returns a string of raw HTML.
+The result is wrapped in a `#+begin_export html' block before
+ox-html runs, so it survives untouched into the final page.
+
+Built-in shortcodes (`youtube', `video', `figure') run first; this
+hook fires for any unrecognised name found anywhere in the body,
+with or without a surrounding `#+begin_export md' wrapper."
+  :type '(alist :key-type symbol :value-type function))
+
 (defcustom org-bootstrap-publish-bootstrap-css
   "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
   "URL or relative path to Bootstrap 5 CSS."
@@ -344,9 +358,17 @@ No `git worktree' or anything fancy required -- a plain
 ;;;; Org -> HTML
 
 (defun org-bootstrap-publish--rewrite-static-src (html)
-  "Prefix local static/ image and link paths with the site path."
+  "Prefix local static/ image and link paths with the site path.
+Also rewrites `file://...path/static/X' URLs (which ox-html emits
+for org links like `[[~/foo/static/bar.jpg]]') to site-path URLs,
+so legacy absolute file: paths still resolve on the deployed site."
   (let ((sp (replace-regexp-in-string "\\\\" "\\\\\\\\"
                                       org-bootstrap-publish-site-path)))
+    (setq html
+          (replace-regexp-in-string
+           "\\(src\\|href\\)=\"file://[^\"]*?/\\(static/[^\"]+\\)\""
+           (concat "\\1=\"" sp "\\2\"")
+           html))
     (replace-regexp-in-string
      "\\(src\\|href\\)=\"static/"
      (concat "\\1=\"" sp "static/")
@@ -398,85 +420,120 @@ No `git worktree' or anything fancy required -- a plain
     (concat (org-bootstrap-publish--url "static") src))
    (t src)))
 
+(defun org-bootstrap-publish--parse-shortcode-args (s)
+  "Parse `key=\"value\"' pairs from S into a plist.
+If no pairs are found and S has a non-empty trimmed value, falls
+back to `(:value <trimmed-s>)' so positional shortcodes (e.g.
+`{{< youtube ID >}}') still pass their arg through."
+  (let ((args nil)
+        (start 0))
+    (while (string-match "\\([A-Za-z_][A-Za-z0-9_-]*\\)=\"\\([^\"]*\\)\""
+                         s start)
+      (push (intern (concat ":" (match-string 1 s))) args)
+      (push (match-string 2 s) args)
+      (setq start (match-end 0)))
+    (if args
+        (nreverse args)
+      (let ((trimmed (string-trim s)))
+        (and (not (string-empty-p trimmed))
+             (list :value trimmed))))))
+
+(defun org-bootstrap-publish--render-shortcode (name args)
+  "Return raw HTML for shortcode NAME with parsed plist ARGS, or nil if unknown."
+  (cond
+   ((string= name "youtube")
+    (let ((id (or (plist-get args :value) (plist-get args :id) "")))
+      (concat "<div class=\"ratio ratio-16x9 my-3\">"
+              "<iframe src=\"https://www.youtube.com/embed/" id "\" "
+              "title=\"YouTube video\" frameborder=\"0\" "
+              "allow=\"accelerometer; autoplay; clipboard-write; "
+              "encrypted-media; gyroscope; picture-in-picture\" "
+              "allowfullscreen></iframe></div>")))
+   ((string= name "video")
+    (let ((url (org-bootstrap-publish--shortcode-static-url
+                (or (plist-get args :src) ""))))
+      (concat "<video controls preload=\"metadata\" class=\"w-100 my-3\">"
+              "<source src=\"" url "\" type=\"video/mp4\"></video>")))
+   ((string= name "figure")
+    (let* ((src (org-bootstrap-publish--shortcode-static-url
+                 (or (plist-get args :src) "")))
+           (caption (or (plist-get args :caption) "")))
+      (concat "<figure class=\"figure my-3\">"
+              "<img src=\"" src "\" class=\"figure-img img-fluid rounded\" alt=\""
+              caption "\">"
+              (if (string-empty-p caption) ""
+                (concat "<figcaption class=\"figure-caption\">" caption
+                        "</figcaption>"))
+              "</figure>")))
+   (t
+    (let ((entry (assq (intern name) org-bootstrap-publish-shortcodes)))
+      (when entry
+        (or (funcall (cdr entry) args) ""))))))
+
+(defun org-bootstrap-publish--substitute-shortcodes (text)
+  "Replace every `{{< NAME ARGS >}}' in TEXT with raw HTML.
+Unknown shortcodes are left untouched."
+  (replace-regexp-in-string
+   "{{<[ \t]*\\([A-Za-z_][A-Za-z0-9_-]*\\)\\([^>]*?\\)[ \t]*>}}"
+   (lambda (m)
+     (save-match-data
+       (string-match "{{<[ \t]*\\([A-Za-z_][A-Za-z0-9_-]*\\)\\([^>]*?\\)[ \t]*>}}"
+                     m)
+       (let* ((name (match-string 1 m))
+              (args (org-bootstrap-publish--parse-shortcode-args
+                     (or (match-string 2 m) "")))
+              (html (org-bootstrap-publish--render-shortcode name args)))
+         (or html m))))
+   text t t))
+
 (defun org-bootstrap-publish--rewrite-shortcodes (body)
-  "Convert common Hugo shortcodes in BODY to HTML export blocks.
-Recognises {{< youtube ID >}}, {{< video src=\"...\" >}}, and
-{{< figure src=\"...\" >}}, with or without a surrounding
-`#+begin_export md' / `#+end_export' wrapper.  `save-match-data'
-shields the outer `replace-regexp-in-string' from the inner
-`string-match' calls used to pull capture groups out of the matched
-substring."
+  "Convert Hugo shortcodes in BODY to HTML export blocks.
+
+Two phases:
+
+1. Each `#+begin_export md ... #+end_export' block has its
+   contents passed through the shortcode substituter; the wrapper
+   itself is rewritten to `#+begin_export html', so any raw HTML
+   that lived alongside shortcodes (e.g. `<br/>' between two
+   crosswords) survives intact.
+
+2. Standalone `{{< name args >}}' calls outside any export block
+   are wrapped individually in `#+begin_export html'.
+
+Built-in shortcodes (`youtube', `video', `figure') and any custom
+entries in `org-bootstrap-publish-shortcodes' share the dispatch."
   (let ((case-fold-search nil))
-    ;; YouTube
     (setq body
           (replace-regexp-in-string
-           (concat "\\(?:^[ \t]*#\\+begin_export[ \t]+md[ \t]*\n\\)?"
-                   "[ \t]*{{<[ \t]*youtube[ \t]+\\([A-Za-z0-9_-]+\\)[ \t]*>}}[ \t]*"
-                   "\\(?:\n[ \t]*#\\+end_export[ \t]*\\)?")
+           "^[ \t]*#\\+begin_export[ \t]+md[ \t]*\n\\(\\(?:.\\|\n\\)*?\\)[ \t]*\n[ \t]*#\\+end_export[ \t]*$"
            (lambda (m)
              (save-match-data
-               (string-match "youtube[ \t]+\\([A-Za-z0-9_-]+\\)" m)
-               (let ((id (match-string 1 m)))
-                 (format
-                  (concat "#+begin_export html\n"
-                          "<div class=\"ratio ratio-16x9 my-3\">"
-                          "<iframe src=\"https://www.youtube.com/embed/%s\" "
-                          "title=\"YouTube video\" frameborder=\"0\" "
-                          "allow=\"accelerometer; autoplay; clipboard-write; "
-                          "encrypted-media; gyroscope; picture-in-picture\" "
-                          "allowfullscreen></iframe></div>\n"
-                          "#+end_export")
-                  id))))
-           body t t))
-    ;; Local video
+               (string-match
+                "^[ \t]*#\\+begin_export[ \t]+md[ \t]*\n\\(\\(?:.\\|\n\\)*?\\)[ \t]*\n[ \t]*#\\+end_export[ \t]*$"
+                m)
+               (let ((content (org-bootstrap-publish--substitute-shortcodes
+                               (match-string 1 m))))
+                 (concat "#+begin_export html\n" content "\n#+end_export"))))
+           body t))
     (setq body
           (replace-regexp-in-string
-           (concat "\\(?:^[ \t]*#\\+begin_export[ \t]+md[ \t]*\n\\)?"
-                   "[ \t]*{{<[ \t]*video[ \t]+src=\"\\([^\"]+\\)\"[ \t]*>}}[ \t]*"
-                   "\\(?:\n[ \t]*#\\+end_export[ \t]*\\)?")
+           "{{<[ \t]*\\([A-Za-z_][A-Za-z0-9_-]*\\)\\([^>]*?\\)[ \t]*>}}"
            (lambda (m)
              (save-match-data
-               (string-match "src=\"\\([^\"]+\\)\"" m)
-               (let ((url (org-bootstrap-publish--shortcode-static-url
-                           (match-string 1 m))))
-                 (format
-                  (concat "#+begin_export html\n"
-                          "<video controls preload=\"metadata\" class=\"w-100 my-3\">"
-                          "<source src=\"%s\" type=\"video/mp4\"></video>\n"
-                          "#+end_export")
-                  url))))
-           body t t))
-    ;; Hugo figure -> img
-    (setq body
-          (replace-regexp-in-string
-           (concat "\\(?:^[ \t]*#\\+begin_export[ \t]+md[ \t]*\n\\)?"
-                   "[ \t]*{{<[ \t]*figure[ \t]+src=\"\\([^\"]+\\)\""
-                   "\\(?:[ \t]+caption=\"\\([^\"]*\\)\"\\)?[ \t]*>}}[ \t]*"
-                   "\\(?:\n[ \t]*#\\+end_export[ \t]*\\)?")
-           (lambda (m)
-             (save-match-data
-               (string-match "src=\"\\([^\"]+\\)\"" m)
-               (let* ((src (org-bootstrap-publish--shortcode-static-url
-                            (match-string 1 m)))
-                      (caption (and (string-match "caption=\"\\([^\"]*\\)\"" m)
-                                    (match-string 1 m))))
-                 (format
-                  (concat "#+begin_export html\n"
-                          "<figure class=\"figure my-3\">"
-                          "<img src=\"%s\" class=\"figure-img img-fluid rounded\" alt=\"%s\">"
-                          "%s"
-                          "</figure>\n"
-                          "#+end_export")
-                  src
-                  (or caption "")
-                  (if (and caption (not (string-empty-p caption)))
-                      (format "<figcaption class=\"figure-caption\">%s</figcaption>"
-                              caption)
-                    "")))))
+               (string-match
+                "{{<[ \t]*\\([A-Za-z_][A-Za-z0-9_-]*\\)\\([^>]*?\\)[ \t]*>}}"
+                m)
+               (let* ((name (match-string 1 m))
+                      (args (org-bootstrap-publish--parse-shortcode-args
+                             (or (match-string 2 m) "")))
+                      (html (org-bootstrap-publish--render-shortcode name args)))
+                 (if html
+                     (concat "#+begin_export html\n" html "\n#+end_export")
+                   m))))
            body t t)))
   body)
 
-(defconst org-bootstrap-publish--cache-version 1
+(defconst org-bootstrap-publish--cache-version 2
   "Bump to invalidate every cached `--org->html' result.
 Increment when the renderer's output changes for the same input
 (e.g. shortcode rewriter, bootstrapifier, or ox-html settings).")
