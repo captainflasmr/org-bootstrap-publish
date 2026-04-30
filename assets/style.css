@@ -140,7 +140,7 @@ body {
 .post-card {
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   background: var(--obp-card-bg);
-  border: 3px solid var(--obp-card-border);
+  border: 3px solid var(--obp-sidebar-bg);
   color: var(--obp-body-fg);
   font-size: 0.95rem;
   line-height: 1.5;

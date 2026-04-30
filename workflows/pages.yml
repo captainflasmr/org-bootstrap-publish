@@ -45,7 +45,7 @@ jobs:
       - name: Install Emacs
         run: |
           sudo apt-get update
-          sudo apt-get install -y emacs-nox
+          sudo apt-get install -y emacs-nox elpa-htmlize
 
       - name: Setup Pages
         id: pages
@@ -55,6 +55,7 @@ jobs:
         run: |
           emacs --batch \
             -L "$GITHUB_WORKSPACE/.obp" \
+            --eval "(package-initialize)" \
             -l org-bootstrap-publish \
             --eval "(progn
               (setq org-bootstrap-publish-source-file \"$GITHUB_WORKSPACE/README.org\")

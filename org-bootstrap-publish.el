@@ -483,10 +483,17 @@ so legacy absolute file: paths still resolve on the deployed site."
           (replace-regexp-in-string
            "<pre class=\"src src-\\([^\"]+\\)\">\\(\\(?:.\\|\n\\)*?\\)</pre>"
            (lambda (m)
-             (let ((lang (match-string 1 m))
-                   (code (match-string 2 m)))
+             (let* ((lang (match-string 1 m))
+                    (code (match-string 2 m))
+                    (hljs (or (cdr (assoc lang
+                                          '(("emacs-lisp" . "lisp")
+                                            ("elisp"      . "lisp")
+                                            ("common-lisp". "lisp")
+                                            ("sh"         . "bash")
+                                            ("shell"      . "bash"))))
+                              lang)))
                (format "<pre><code class=\"language-%s\">%s</code></pre>"
-                       lang code)))
+                       hljs code)))
            html nil t)))
   (org-bootstrap-publish--rewrite-static-src html))
 
@@ -611,7 +618,7 @@ entries in `org-bootstrap-publish-shortcodes' share the dispatch."
            body t t)))
   body)
 
-(defconst org-bootstrap-publish--cache-version 2
+(defconst org-bootstrap-publish--cache-version 3
   "Bump to invalidate every cached `--org->html' result.
 Increment when the renderer's output changes for the same input
 (e.g. shortcode rewriter, bootstrapifier, or ox-html settings).")
@@ -801,7 +808,7 @@ string when neither knob is configured."
                   "body {\n  background: var(--obp-sidebar-bg);\n}\n"
                   (format "body::before {\n  content: \"\";\n  position: fixed;\n  inset: 0;\n  background-image: url(%S);\n  background-size: cover;\n  background-position: center;\n%s  z-index: -1;\n}\n"
                           bg-url extras)
-                  ".content-inner {\n  background: var(--obp-body-bg);\n  padding: 2rem 2.5rem;\n  border-radius: 6px;\n}\n")))))
+                  ".content-inner {\n  background: color-mix(in srgb, var(--obp-body-bg) 92%, var(--obp-sidebar-bg));\n  border: 3px solid var(--obp-sidebar-bg);\n  padding: 2rem 2.5rem;\n  border-radius: 6px;\n}\n")))))
     (if (and (string-empty-p decls) (not body-rule)) ""
       (concat
        "<style>\n"
@@ -1672,6 +1679,38 @@ combined list is re-sorted by date so cross-file ordering is correct."
                     (db nil)
                     (t nil)))))))
 
+(defconst org-bootstrap-publish--batch-face-colors
+  '((default                          . ("#dcdcdc" . "#1e1e1e"))
+    (font-lock-keyword-face           . "#569cd6")
+    (font-lock-string-face            . "#ce9178")
+    (font-lock-comment-face           . "#6a9955")
+    (font-lock-comment-delimiter-face . "#6a9955")
+    (font-lock-doc-face               . "#6a9955")
+    (font-lock-function-name-face     . "#dcdcaa")
+    (font-lock-variable-name-face     . "#9cdcfe")
+    (font-lock-constant-face          . "#4ec9b0")
+    (font-lock-builtin-face           . "#c586c0")
+    (font-lock-type-face              . "#4ec9b0")
+    (font-lock-warning-face           . "#f44747")
+    (font-lock-preprocessor-face      . "#c586c0")
+    (font-lock-negation-char-face     . "#f44747"))
+  "Hardcoded colours for common font-lock faces in batch builds.
+`emacs --batch' has no display, so themes never set face
+foregrounds and `htmlize' produces colourless spans.  We force
+explicit colours via `set-face-attribute' (which works without a
+frame) so source blocks render with VS-Code-ish dark colours.")
+
+(defun org-bootstrap-publish--ensure-batch-faces ()
+  "Force explicit colours on font-lock faces when running in batch.
+No-op when interactive or when a display is available."
+  (when (and noninteractive (zerop (display-color-cells)))
+    (dolist (entry org-bootstrap-publish--batch-face-colors)
+      (let ((face (car entry))
+            (val  (cdr entry)))
+        (if (consp val)
+            (set-face-attribute face nil :foreground (car val) :background (cdr val))
+          (set-face-attribute face nil :foreground val))))))
+
 ;;;###autoload
 (defun org-bootstrap-publish (&optional source-file output-dir)
   "Publish SOURCE-FILE to OUTPUT-DIR.
@@ -1680,6 +1719,7 @@ With no arguments, parse every file in
 singleton `org-bootstrap-publish-source-file' (or the current org
 buffer).  Output goes to `org-bootstrap-publish-output-dir'."
   (interactive)
+  (org-bootstrap-publish--ensure-batch-faces)
   (let* ((files (cond
                  (source-file (list (expand-file-name source-file)))
                  ((org-bootstrap-publish--source-files))
