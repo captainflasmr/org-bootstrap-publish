@@ -476,7 +476,9 @@ so legacy absolute file: paths still resolve on the deployed site."
          "<blockquote>"
          "<blockquote class=\"blockquote ps-3 border-start\">"
          html t t))
-  (when org-bootstrap-publish-highlight-js
+  (when (and org-bootstrap-publish-highlight-js
+             (not (and org-bootstrap-publish-htmlize-output-type
+                       (featurep 'htmlize))))
     (setq html
           (replace-regexp-in-string
            "<pre class=\"src src-\\([^\"]+\\)\">\\(\\(?:.\\|\n\\)*?\\)</pre>"
@@ -865,7 +867,8 @@ empty string when neither knob is configured."
      "  </main>\n"
      "</div>\n"
      (format "<script src=\"%s\"></script>\n" bs-js)
-     (when (and hl-js (not org-bootstrap-publish-htmlize-output-type))
+     (when (and hl-js (not (and org-bootstrap-publish-htmlize-output-type
+                                (featurep 'htmlize))))
        (concat (format "<script src=\"%s\"></script>\n" hl-js)
                "<script>hljs.highlightAll();</script>\n"))
      (format "<script src=\"%s\" defer></script>\n"
