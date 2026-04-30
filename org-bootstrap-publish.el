@@ -174,12 +174,66 @@ publish every heading regardless of state."
   "Directories, relative to the source file, copied verbatim into the output."
   :type '(repeat string))
 
+(defcustom org-bootstrap-publish-layout 'sidebar
+  "Page layout style.
+`sidebar' (default) puts the navigation in a vertical bar on the
+left of every page.  `rightbar' is the same vertical bar mirrored
+to the right edge.  `topbar' lays the same elements across the
+top instead — site title, tagline, search box, theme toggle and
+nav links sit in a horizontal strip above the content area, and
+the copyright footer is hidden.  Implemented entirely via a
+`site-layout-<name>' class on the outer wrapper, so user CSS can
+register additional layouts without touching the generator."
+  :type '(choice (const :tag "Sidebar (left)" sidebar)
+                 (const :tag "Sidebar (right)" rightbar)
+                 (const :tag "Topbar (above)" topbar)))
+
 (defcustom org-bootstrap-publish-disqus-shortname nil
   "Disqus shortname for the comment thread embedded under each post.
 nil disables the embed; any non-empty string enables it.  The
 injected script skips `localhost'/`127.0.0.1' so the dev server
 doesn't create stray threads under your account."
   :type '(choice (const :tag "Disabled" nil) string))
+
+(defcustom org-bootstrap-publish-theme-overrides nil
+  "Alist of (PROPERTY . VALUE) overriding CSS custom properties site-wide.
+PROPERTY is a CSS variable name with or without the leading `--'
+(e.g. `obp-sidebar-bg' or `--obp-sidebar-bg').  VALUE is any CSS
+value as a string (e.g. \"#123456\").  Each override is emitted
+against `:root' and every `[data-obp-theme=...]' selector defined
+by the stylesheet, so it survives the light/dark/emacs toggle --
+useful for locking site-wide branding colours like the sidebar
+background even as the post body changes mode."
+  :type '(alist :key-type string :value-type string))
+
+(defcustom org-bootstrap-publish-background-image nil
+  "Optional URL or path for a `body' background image.
+nil means no override -- the active theme's `--obp-body-bg' colour
+shows through.  Any non-empty string is dropped straight into a
+`background-image: url(...)' rule with `cover'/`fixed' sizing;
+both site-relative paths (e.g. \"/assets/bg.jpg\") and absolute
+URLs work."
+  :type '(choice (const :tag "Disabled" nil) string))
+
+(defcustom org-bootstrap-publish-background-blur nil
+  "Optional CSS blur radius (in `px') applied to the body background image.
+nil or 0 leaves the image rendered crisply.  A positive integer
+adds `filter: blur(Npx)' to the fixed `body::before' overlay that
+carries the image, so the blur hits only the image -- text and
+cards in the content area stay sharp.  Useful for taming busy
+banner photos behind the post column."
+  :type '(choice (const :tag "No blur" nil) integer))
+
+(defcustom org-bootstrap-publish-background-opacity nil
+  "Optional opacity (0.0 -- 1.0) applied to the body background image.
+nil means fully opaque (1.0) -- the image is drawn at full
+strength.  Lower values fade the image toward the active theme's
+`--obp-body-bg' colour, which sits behind it; e.g. 0.2 gives a
+very subtle wash, 0.5 a clearly visible but muted image.  Stacks
+with `org-bootstrap-publish-background-blur'.  Implemented as
+`opacity' on the same `body::before' overlay, so foreground text
+and cards are unaffected."
+  :type '(choice (const :tag "Fully opaque" nil) number))
 
 (defcustom org-bootstrap-publish-shortcodes nil
   "Alist of (NAME . FUNCTION) registering custom Hugo-style shortcodes.
@@ -684,6 +738,48 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
           (org-bootstrap-publish--url t2)
         (org-bootstrap-publish--url "static/" t2)))))
 
+(defun org-bootstrap-publish--theme-style-block ()
+  "Return an inline `<style>' block applying user theme overrides.
+Emits CSS variable overrides from `org-bootstrap-publish-theme-overrides'
+against `:root' and every `[data-obp-theme=...]' selector so they
+survive the light/dark/emacs toggle.  When
+`org-bootstrap-publish-background-image' is set, also emits a
+`body' rule painting it across the viewport, plus a
+`.content-inner' rule giving the post column a solid `--obp-body-bg'
+backing so text stays readable over a busy image.  Returns the
+empty string when neither knob is configured."
+  (let* ((overrides org-bootstrap-publish-theme-overrides)
+         (bg        org-bootstrap-publish-background-image)
+         (blur      org-bootstrap-publish-background-blur)
+         (opacity   org-bootstrap-publish-background-opacity)
+         (selector  ":root, [data-obp-theme=\"dark\"], [data-obp-theme=\"emacs\"]")
+         (decls
+          (mapconcat
+           (lambda (pair)
+             (let* ((raw (format "%s" (car pair)))
+                    (name (if (string-prefix-p "--" raw) raw (concat "--" raw))))
+               (format "  %s: %s;" name (cdr pair))))
+           overrides "\n"))
+         (body-rule
+          (and (stringp bg) (not (string-empty-p bg))
+               (let* ((extras
+                       (concat
+                        (when (and (numberp blur) (> blur 0))
+                          (format "  filter: blur(%dpx);\n  transform: scale(1.05);\n" blur))
+                        (when (numberp opacity)
+                          (format "  opacity: %s;\n" opacity)))))
+                 (concat
+                  (format "body::before {\n  content: \"\";\n  position: fixed;\n  inset: 0;\n  background-image: url(%S);\n  background-size: cover;\n  background-position: center;\n%s  z-index: -1;\n}\n"
+                          bg extras)
+                  ".content-inner {\n  background: var(--obp-body-bg);\n  padding: 2rem 2.5rem;\n  border-radius: 6px;\n}\n")))))
+    (if (and (string-empty-p decls) (not body-rule)) ""
+      (concat
+       "<style>\n"
+       (unless (string-empty-p decls)
+         (format "%s {\n%s\n}\n" selector decls))
+       (or body-rule "")
+       "</style>\n"))))
+
 (defun org-bootstrap-publish--page (title body)
   (let ((bs-css   org-bootstrap-publish-bootstrap-css)
         (bs-js    org-bootstrap-publish-bootstrap-js)
@@ -704,12 +800,14 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
      (when hl-css (format "<link rel=\"stylesheet\" href=\"%s\">\n" hl-css))
      (format "<link rel=\"stylesheet\" href=\"%s\">\n"
              (org-bootstrap-publish--url "assets/style.css"))
+     (org-bootstrap-publish--theme-style-block)
      (format "<link rel=\"alternate\" type=\"application/atom+xml\" href=\"%s\" title=\"%s\">\n"
              (org-bootstrap-publish--url "index.xml") site)
      "<script>(function(){var t=null;try{t=localStorage.getItem('obp-theme');}catch(e){}if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'emacs';}document.documentElement.setAttribute('data-obp-theme',t);document.documentElement.setAttribute('data-bs-theme',t==='dark'?'dark':'light');})();</script>\n"
      "</head>\n"
      "<body>\n"
-     "<div class=\"site\">\n"
+     (format "<div class=\"site site-layout-%s\">\n"
+             (or org-bootstrap-publish-layout 'sidebar))
      "  <aside class=\"sidebar\">\n"
      "    <div class=\"sidebar-inner\">\n"
      (format "      <h1 class=\"site-title\"><a href=\"%s\">%s</a></h1>\n"
@@ -1624,7 +1722,12 @@ buffer).  Output goes to `org-bootstrap-publish-output-dir'."
     org-bootstrap-publish-menu-links
     org-bootstrap-publish-source-files
     org-bootstrap-publish-cache-dir
-    org-bootstrap-publish-disqus-shortname)
+    org-bootstrap-publish-disqus-shortname
+    org-bootstrap-publish-layout
+    org-bootstrap-publish-theme-overrides
+    org-bootstrap-publish-background-image
+    org-bootstrap-publish-background-blur
+    org-bootstrap-publish-background-opacity)
   "Customisation vars propagated to the async build subprocess.")
 
 (defun org-bootstrap-publish--library-dir ()

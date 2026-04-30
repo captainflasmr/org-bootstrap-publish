@@ -1,20 +1,23 @@
 #+title: org-bootstrap-publish
 #+author: James Dyer
-#+options: toc:nil
+#+options: toc:2
 
-Generate a Bootstrap 5 static site from a single Org file.  Each top-level heading becomes a post.  Output is a =public/= folder that can be uploaded to any static host (Cloudflare Pages, Netlify, GitHub Pages, plain S3, etc.).
+Generate a Bootstrap 5 static site from one or more Org files.  Each top-level heading becomes a post.  The build writes a =public/= folder you can drop on Cloudflare Pages, Netlify, GitHub Pages, plain S3, or any static host.
 
-* Features
+This README is a tutorial that walks from a five-minute first site through every layer of customisation the package supports.  Reference tables for every variable and post property live at the end.
+
+* What you get
 
 - Index page with responsive Bootstrap 5 post cards.
-- One HTML page per post, rendered via =ox-html=.
-- One HTML page per tag, plus a tag-cloud index.
-- Atom feed at =index.xml= (also mirrored to =feed.xml=).
-- Hyde-style left sidebar with site title, tagline, nav, and byline.
-- Optional highlight.js code-block highlighting (CDN, opt-out).
-- Gallery posts: a heading marked =:EXPORT_HUGO_TYPE: gallery= renders a masonry grid of every image found in =static/<section>/= at build time, in addition to the heading body.  Useful for art portfolios and similar collections where the images live next to each other on disk and you want one page that surfaces them all.
-- Hugo shortcodes: =\{\{< youtube ID >\}\}=, =\{\{< video src="..." >\}\}=, and =\{\{< figure src="..." caption="..." >\}\}= are recognised both bare and wrapped in =#+begin_export md= / =#+end_export=, and emit a Bootstrap iframe, =<video>=, or =<figure>= in their place.  Lets an ox-hugo source file with embedded shortcodes carry over without manual rewriting.
-- Recognises =EXPORT_FILE_NAME= (use =index= for a section-bundle URL), =EXPORT_HUGO_SECTION=, =EXPORT_HUGO_LASTMOD=, =EXPORT_HUGO_TYPE=, and the =:thumbnail= key inside =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= so an ox-hugo source file works unchanged.
+- One HTML page per post, rendered through =ox-html=.
+- Per-tag pages, a tag cloud, and per-section landings.
+- Atom feed at =index.xml= (mirrored to =feed.xml=) and per-tag Atom feeds.
+- Hyde-style sidebar — left, right, or top — with title, tagline, navigation, search box, and a light/dark/emacs theme toggle.
+- Optional highlight.js syntax highlighting (CDN, opt-out).
+- Gallery posts that auto-collect images from a static directory.
+- Hugo shortcodes (=youtube=, =video=, =figure=) recognised inline or inside =#+begin_export md= blocks, plus a registry for your own.
+- Cross-build HTML cache so warm rebuilds skip work that hasn't changed.
+- An async build that keeps the editor responsive on big sites.
 
 * Install
 
@@ -25,81 +28,372 @@ Drop the directory on your =load-path=:
 (require 'org-bootstrap-publish)
 #+end_src
 
-* Usage
+Emacs 28 or newer is required (transient is used for the optional menu).  No package managers, no MELPA, no external dependencies.
 
-Configure once per site, then call =M-x org-bootstrap-publish=:
+* Quickstart: a site in five minutes
+
+The smallest possible site is one Org file with one heading and three lines of configuration.
+
+** Step 1 — write a post
+
+Create =~/site/posts.org=:
+
+#+begin_src org
+#+title: Hello World
+#+author: Your Name
+
+,* My first post                                                       :hello:
+:PROPERTIES:
+:EXPORT_HUGO_SECTION: notes
+:EXPORT_HUGO_LASTMOD: 2026-04-30 09:00
+:EXPORT_FILE_NAME: my-first-post
+:END:
+
+This is the body of the post.  Write Org as you normally would —
+=src= blocks, lists, =[[file:...][images]]=, the lot.
+#+end_src
+
+Note the Org-mode property drawer (=:PROPERTIES:= ... =:END:= block):
+
+- =EXPORT_HUGO_SECTION= — URL prefix.  The post will live at =/notes/my-first-post/=.
+- =EXPORT_HUGO_LASTMOD= — sortable timestamp.  Posts on the index are ordered newest-first by this value.
+- =EXPORT_FILE_NAME= — the slug.  If omitted, it's derived from the heading text.
+
+The trailing =:hello:= is an Org tag — it becomes a tag page at =/tags/hello/=.
+
+** Step 2 — point obp at the file
 
 #+begin_src elisp
-(setq org-bootstrap-publish-source-file "~/publish/hugo-unified/README.org"
-      org-bootstrap-publish-output-dir  "~/publish/obp-out/public"
-      org-bootstrap-publish-site-title  "Emacs Dwelling"
-      org-bootstrap-publish-site-tagline "Emacs notes from James Dyer"
-      org-bootstrap-publish-site-url    "https://emacs.dyerdwelling.family/"
-      org-bootstrap-publish-author      "James Dyer")
+(setq org-bootstrap-publish-source-file "~/site/posts.org"
+      org-bootstrap-publish-output-dir  "~/site/public"
+      org-bootstrap-publish-site-title  "My Site"
+      org-bootstrap-publish-site-url    "https://example.com/"
+      org-bootstrap-publish-author      "Your Name")
 #+end_src
 
-Or run it from the command line:
+** Step 3 — build
+
+#+begin_src
+M-x org-bootstrap-publish
+#+end_src
+
+You'll see something like:
+
+#+begin_example
+org-bootstrap-publish: parsed 1 posts from 1 source
+org-bootstrap-publish: wrote 1 posts and 1 tags to ~/site/public
+#+end_example
+
+** Step 4 — preview
 
 #+begin_src sh
-emacs --batch \
-  -L ~/source/repos/org-bootstrap-publish \
-  -l org-bootstrap-publish \
-  --eval "(progn
-    (setq org-bootstrap-publish-source-file \"/path/to/README.org\")
-    (setq org-bootstrap-publish-output-dir  \"./public\")
-    (setq org-bootstrap-publish-site-title  \"My Site\")
-    (org-bootstrap-publish))"
+cd ~/site/public && python3 -m http.server 8080
 #+end_src
 
-* Multiple sites from one Emacs
+Open http://localhost:8080 and you'll see the home page card grid, the post itself at =/notes/my-first-post/=, the tag page at =/tags/hello/=, the archive at =/posts.html=, and the tag cloud at =/tags.html=.
 
-Every option above is a regular =defcustom=, so the easiest way to publish more than one site is to override them per build instead of =setq='ing them globally.  Pass overrides on the =--batch= command line and the same Emacs build can target whichever site you point it at — the in-Emacs default values still resolve to the =Emacs Dwelling= site, but the batch =--eval= takes precedence.
+That's the entire happy path.  Everything below is "now make it do more".
 
-The example below builds the art portfolio.  It overrides the source file, output dir, URL, title, the static subtree to copy, and the sidebar tag links.  The =EXPORT_HUGO_TYPE: gallery= headings in =art.org= are picked up automatically.
+* Live preview with rebuild on save
 
-#+begin_src sh
-emacs --batch \
-  -L ~/source/repos/org-bootstrap-publish \
-  -l org-bootstrap-publish \
-  --eval "(progn
-    (setq org-bootstrap-publish-source-file  \"~/publish/hugo-unified/art.org\")
-    (setq org-bootstrap-publish-output-dir   \"~/publish/hugo-unified/public\")
-    (setq org-bootstrap-publish-site-title   \"DyerDwelling/art\")
-    (setq org-bootstrap-publish-site-tagline \"Welcome to the home of James Dyer wearied traveller\")
-    (setq org-bootstrap-publish-site-url     \"https://www.art.dyerdwelling.family/\")
-    (setq org-bootstrap-publish-site-path    \"/\")
-    (setq org-bootstrap-publish-author       \"James Dyer\")
-    (setq org-bootstrap-publish-static-dirs
-          '(\"static/art--gallery\" \"static/art--videos\" \"static/art--other\"))
-    (setq org-bootstrap-publish-menu-tags
-          '((\"gallery\" . \"gallery\")
-            (\"videos\"  . \"videos\")
-            (\"doodles\" . \"doodle\")
-            (\"artrage\" . \"artrage\")
-            (\"2024\"    . \"2024\")
-            (\"2023\"    . \"2023\")
-            (\"2022\"    . \"2022\")))
-    (org-bootstrap-publish))"
+Manually rebuilding gets old fast.  =M-x org-bootstrap-publish-serve= replaces the previous step:
+
+- Runs an asynchronous full build (editor stays responsive; progress streams to =*obp-build*=).
+- Starts a =python3= dev server on port =8080= (configurable via =org-bootstrap-publish-serve-port=).
+- Opens your browser at the home page.
+- Installs an =after-save-hook= on the source file.  Saving triggers an incremental rebuild of just the post you edited (~0.5 s) and refreshes the tab automatically.
+
+Stop with =M-x org-bootstrap-publish-stop= — it kills the server and removes the save hook.
+
+The live-reload script (a tiny inline =setInterval=) only fires on =localhost=, so it's a no-op on the deployed site.
+
+* Building up: tags, sections, thumbnails
+
+A real site has many posts.  Add more =* Heading= entries to =posts.org= and they'll all be picked up.
+
+** Tags
+
+Tags are just Org tags on the heading line:
+
+#+begin_src org
+,* Some thoughts on database indexing                       :postgres:db:
 #+end_src
 
-The interactive =M-x org-bootstrap-publish= still uses whatever your =init.el= sets — typically the emacs blog — so day-to-day editing of =README.org= continues to work without thinking about it.  A second site is one shell command away when you need it.
+Each tag generates a =/tags/<tag>/index.html= listing every post carrying it, plus a =/tags/<tag>/index.xml= Atom feed.  =/tags.html= shows them all as a tag cloud sized by post count.
 
-** Multi-source sites
+The =noexport= tag (configurable via =org-bootstrap-publish-exclude-tags=) skips a heading entirely — handy for drafts.
 
-A single site can pull posts from several Org files at once.  Set =org-bootstrap-publish-source-files= (plural) to the list — it takes precedence over =-source-file= when both are set.  Headings from every file are merged, sorted by =EXPORT_HUGO_LASTMOD=, and treated as if they came from one source.  Useful for an umbrella site that aggregates an art blog, a Linux blog, an Emacs blog, etc.
+** Sections
+
+=EXPORT_HUGO_SECTION= sets the URL prefix.  All posts sharing a section show up at =/<section>/= as a paginated landing page (cards by default).  Nested sections (=blog/2026=) work the same way.
+
+** Thumbnails (card images)
+
+Add a thumbnail by setting =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= in the property drawer:
+
+#+begin_src org
+:EXPORT_HUGO_CUSTOM_FRONT_MATTER+: :thumbnail /static/notes/my-first-post.jpg
+#+end_src
+
+The image must live under one of =org-bootstrap-publish-static-dirs= (see the "Multiple sites" section) so it gets copied into the build output.  The home page card and the section landing card both use it.
+
+** Multiple source files
+
+Set =org-bootstrap-publish-source-files= (plural) instead of =-source-file= and pass a list:
 
 #+begin_src elisp
 (setq org-bootstrap-publish-source-files
-      '("~/publish/hugo-unified/blog.org"
-        "~/publish/hugo-unified/art.org"
-        "~/publish/hugo-unified/linux.org"
-        "~/publish/hugo-unified/kate.org"
-        "~/publish/hugo-unified/README.org"))
+      '("~/publish/blog.org"
+        "~/publish/art.org"
+        "~/publish/linux.org"))
 #+end_src
 
-The save-hook rebuild walks all configured files looking for the buffer being saved, so editing any one of them still triggers an incremental rebuild.
+Headings from every file are merged, sorted by =EXPORT_HUGO_LASTMOD=, and treated as one stream.  Useful for an umbrella site that aggregates several per-topic blogs.  The save-hook walks the full list, so editing any of them still rebuilds incrementally.
 
-The umbrella site usually wants the sidebar to link section landings (=/blog/=, =/photos/=) and specific posts rather than the per-tag links in =org-bootstrap-publish-menu-tags=.  =org-bootstrap-publish-menu-links= takes an alist of =(label . url)= pairs and renders them in the sidebar as raw URLs.  Entries can use a long form, =(label url :style style)=, to control how the destination renders when it points to a generated section landing (the =:style= is ignored for tag pages, post URLs, and external links).  The default is =cards=; =list= renders a flat bullet list, useful for blog-shaped sections where thumbnails would just be noise.
+When both =-source-file= and =-source-files= are set, the plural one wins.
+
+* Customising the look
+
+** Layout — left/right sidebar or topbar
+
+Three values for =org-bootstrap-publish-layout=:
+
+| =sidebar=  | (default) vertical bar on the left |
+| =rightbar= | same bar mirrored to the right     |
+| =topbar=   | horizontal nav above the content   |
+
+#+begin_src elisp
+(setq org-bootstrap-publish-layout 'topbar)
+#+end_src
+
+The wrapper carries =site-layout-<name>= as a class, so additional layouts can be registered by user CSS without touching the package.
+
+** Three built-in colour themes
+
+Every page ships a sidebar button that cycles through =light= → =dark= → =emacs=.  Choice persists in =localStorage= and is reapplied before first paint, so there's no flash on subsequent loads.
+
+The themes are pure CSS — defined in =assets/style.css= as variable overrides on =[data-obp-theme=...]= selectors.  The toggle just flips that attribute on =<html>=.
+
+** Override CSS variables per site
+
+Want a particular site's sidebar to be navy and orange regardless of which theme the visitor picks?  Set =org-bootstrap-publish-theme-overrides=:
+
+#+begin_src elisp
+(setq org-bootstrap-publish-theme-overrides
+      '(("obp-sidebar-bg"    . "#1f2a40")
+        ("obp-sidebar-fg"    . "#e6ecf5")
+        ("obp-sidebar-muted" . "#8b9bb4")
+        ("obp-accent"        . "#ff8a4c")
+        ("obp-accent-rgb"    . "255, 138, 76")))
+#+end_src
+
+Each pair becomes a CSS custom-property declaration emitted against =:root= /and/ every =[data-obp-theme=...]= selector, so the override survives the light/dark/emacs toggle.  Property names accept the leading =--= or omit it.
+
+The full list of variables you can override lives in =assets/style.css= — the defaults are documented there as comments.  The most useful are =obp-sidebar-bg=, =obp-sidebar-fg=, =obp-accent=, =obp-body-bg=, =obp-card-bg=, =obp-card-border=, =obp-link=.
+
+** Background image (with blur and opacity)
+
+Set =org-bootstrap-publish-background-image= to a URL or site-relative path:
+
+#+begin_src elisp
+(setq org-bootstrap-publish-background-image "/static/banner.jpg")
+#+end_src
+
+The image renders through a fixed =body::before= overlay, so it doesn't scroll with the content and never sits in front of the post body.  When set, the helper also gives =.content-inner= a solid =--obp-body-bg= backing with a small radius — readable text over a busy image.
+
+Tame the image with two extra knobs:
+
+#+begin_src elisp
+(setq org-bootstrap-publish-background-blur    8     ;; px, nil for none
+      org-bootstrap-publish-background-opacity 0.4)  ;; 0.0 – 1.0
+#+end_src
+
+Roughly:
+
+| =blur=  | 4–6 subtle, 8–10 clearly defocused, 15+ abstract wash |
+| =opacity= | 1.0 full strength, 0.4–0.6 muted, 0.15–0.25 tinted hint |
+
+Both stack — =blur 12 + opacity 0.2= makes a barely-there abstract backdrop.
+
+* Gallery posts
+
+A heading marked =:EXPORT_HUGO_TYPE: gallery= renders a Bootstrap masonry grid of every image found in =static/<section>/= relative to the source file, sorted by filename descending so date-prefixed files come out newest-first.  The heading body still renders /above/ the grid, so an intro paragraph survives.
+
+#+begin_src org
+,* Portraits                                          :portrait:gallery:
+:PROPERTIES:
+:EXPORT_FILE_NAME: index
+:EXPORT_HUGO_SECTION: art--gallery/portraits
+:EXPORT_HUGO_TYPE: gallery
+:EXPORT_HUGO_LASTMOD: 2024-03-05
+:EXPORT_HUGO_CUSTOM_FRONT_MATTER+: :thumbnail /art--gallery/gallery--portraits.jpg
+:END:
+
+A short paragraph that appears above the grid.
+
+#+hugo: more
+#+end_src
+
+Two conventions:
+
+- =:EXPORT_FILE_NAME: index= collapses the URL to =/<section>/= rather than =/<section>/index/=, matching Hugo's content-bundle convention.
+- =static/art--gallery/portraits/= must be in =org-bootstrap-publish-static-dirs= (see "Selective static copy") so the images are copied into the build output.
+
+Recognised extensions: =gif=, =webp=, =jpe?g=, =tiff=, =png=, =bmp=.
+
+* Shortcodes
+
+** Built-in: youtube, video, figure
+
+Three Hugo-style shortcodes are recognised whether they sit on their own line or inside a =#+begin_export md= ... =#+end_export= wrapper:
+
+#+begin_src org
+,#+begin_export md
+{{< youtube dQw4w9WgXcQ >}}
+{{< video src="/static/clip.mp4" >}}
+{{< figure src="/static/diagram.png" caption="System architecture" >}}
+,#+end_export
+#+end_src
+
+They're rewritten to a Bootstrap-friendly =<iframe>=, =<video>=, or =<figure>= during the export pass.  Without this, =ox-html= would silently drop the =md= export blocks.
+
+=/foo= paths in =video= and =figure= shortcodes are rewritten to =<site-path>static/foo= so Hugo's flattened-static convention keeps working.
+
+** Custom shortcodes
+
+Register your own via =org-bootstrap-publish-shortcodes=:
+
+#+begin_src elisp
+(defun my/obp-shortcode-tweet (args)
+  (let ((id (plist-get args :id)))
+    (format "<blockquote class=\"twitter-tweet\"><a href=\"https://twitter.com/x/status/%s\"></a></blockquote>" id)))
+
+(setq org-bootstrap-publish-shortcodes
+      '((tweet . my/obp-shortcode-tweet)))
+#+end_src
+
+Then in your Org file:
+
+#+begin_src org
+{{< tweet id="1234567890" >}}
+#+end_src
+
+The handler receives a plist of parsed =key="value"= pairs (under keyword keys, e.g. =:id "1234"=) or =nil= for argless shortcodes.  Return raw HTML; it gets wrapped in a =#+begin_export html= block before =ox-html= runs, so it survives untouched into the final page.
+
+Caveat: handlers must be =fboundp= in whichever process renders the build.  The synchronous build picks them up from your init/script automatically.  The async batch path /does not/ load your init, so any handler not defined inside the package itself will be skipped during async builds.  Use the synchronous =M-x org-bootstrap-publish= when developing custom shortcodes.
+
+* Multiple sites from one Emacs
+
+The recommended pattern is an alist of profiles plus a small selector, kept in a separate file so both interactive Emacs and a batch build script (=bin/web=, GitHub Actions, etc.) can load it.
+
+** The profile alist
+
+Create =~/publish/obp-sites.el=:
+
+#+begin_src elisp
+(defvar my/obp-sites
+  '((blog
+     (org-bootstrap-publish-source-files . ("~/publish/blog.org"))
+     (org-bootstrap-publish-output-dir   . "~/publish/blog/public")
+     (org-bootstrap-publish-site-title   . "My Blog")
+     (org-bootstrap-publish-site-url     . "https://blog.example.com/"))
+    (art
+     (org-bootstrap-publish-source-files . ("~/publish/art.org"))
+     (org-bootstrap-publish-output-dir   . "~/publish/art/public")
+     (org-bootstrap-publish-site-title   . "Art")
+     (org-bootstrap-publish-site-url     . "https://art.example.com/")
+     (org-bootstrap-publish-layout       . topbar))))
+
+(defvar my/obp-managed-vars
+  '(org-bootstrap-publish-source-files
+    org-bootstrap-publish-output-dir
+    org-bootstrap-publish-site-title
+    org-bootstrap-publish-site-tagline
+    org-bootstrap-publish-site-url
+    org-bootstrap-publish-layout
+    org-bootstrap-publish-theme-overrides
+    org-bootstrap-publish-background-image
+    org-bootstrap-publish-background-blur
+    org-bootstrap-publish-background-opacity
+    org-bootstrap-publish-menu-links))
+
+(defun my/obp-use-site (name)
+  "Reset every managed var to its defcustom default, then apply NAME's profile."
+  (interactive
+   (list (intern (completing-read "Site: "
+                                  (mapcar #'car my/obp-sites) nil t))))
+  (let ((profile (cdr (assq name my/obp-sites))))
+    (unless profile (user-error "No such site: %s" name))
+    (dolist (sym my/obp-managed-vars)
+      (when-let ((std (get sym 'standard-value)))
+        (set sym (eval (car std)))))
+    (dolist (pair profile)
+      (set (car pair) (cdr pair)))
+    (message "obp: switched to %s" name)))
+#+end_src
+
+The selector resets every managed var to its =defcustom= default before applying the profile, so each profile only needs to list values that differ from the package defaults — no leakage between sites.
+
+** Per-site serve commands
+
+Generate one =M-x= command per site so you can flip between them without manually stopping/starting:
+
+#+begin_src elisp
+(defun my/obp-serve-site (name)
+  "Stop any running obp server, switch to NAME, then serve it."
+  (interactive
+   (list (intern (completing-read "Serve site: "
+                                  (mapcar #'car my/obp-sites) nil t))))
+  (when (fboundp 'org-bootstrap-publish-stop)
+    (org-bootstrap-publish-stop))
+  (my/obp-use-site name)
+  (org-bootstrap-publish-serve))
+
+(dolist (entry my/obp-sites)
+  (let ((name (car entry)))
+    (defalias (intern (format "my/obp-serve-%s" name))
+      (lambda () (interactive) (my/obp-serve-site name)))))
+#+end_src
+
+You'll get =M-x my/obp-serve-blog=, =M-x my/obp-serve-art= etc., automatically — adding a new entry to =my/obp-sites= grows the command list with no further edits.
+
+** Optional transient menu
+
+If you have transient (built into Emacs 28+):
+
+#+begin_src elisp
+(transient-define-prefix my/obp-menu ()
+  "org-bootstrap-publish dispatch."
+  ["Serve"
+   ("s" "select…"  my/obp-serve-site)
+   ("b" "blog"     my/obp-serve-blog)
+   ("a" "art"      my/obp-serve-art)
+   ("S" "stop"     org-bootstrap-publish-stop)]
+  ["Build"
+   ("u" "switch site"  my/obp-use-site)
+   ("B" "build async"  org-bootstrap-publish-async)
+   ("X" "abort async"  org-bootstrap-publish-async-abort)]
+  ["Deploy"
+   ("P" "publish (git push)" org-bootstrap-publish-publish)])
+
+(global-set-key (kbd "C-c w") #'my/obp-menu)
+#+end_src
+
+** Selective static copy
+
+=org-bootstrap-publish-static-dirs= controls which subtrees of the source file's directory are copied into =public/=.  When several sites share one Org tree but only need part of =static/=, list nested paths:
+
+#+begin_src elisp
+;; Art site: skip emacs/, kate/, photos/, etc.
+(setq org-bootstrap-publish-static-dirs
+      '("static/art--gallery" "static/art--videos" "static/art--other"))
+#+end_src
+
+Destination directories are created automatically, so deeply-nested entries work without further setup.
+
+** Sidebar links for an umbrella site
+
+An aggregator usually wants the sidebar to point to section landings (=/blog/=, =/photos/=) and specific posts rather than tag pages.  =org-bootstrap-publish-menu-links= renders an alist of =(label . url)= pairs:
 
 #+begin_src elisp
 (setq org-bootstrap-publish-menu-links
@@ -110,105 +404,110 @@ The umbrella site usually wants the sidebar to link section landings (=/blog/=, 
         ("about"    . "/blog/posts--about-me/")))
 #+end_src
 
-Section landings (=/blog/=, =/photos/=, =/photos/2003/=, etc.) are generated automatically — one listing per distinct =EXPORT_HUGO_SECTION= root — unless a heading with =EXPORT_FILE_NAME: index= already owns that URL.  They paginate at =org-bootstrap-publish-posts-per-page= using =/<section>/page/N/= for the second page onwards.
+The long form =(label url :style style)= controls how the destination renders when it points to a generated section landing or tag page (=cards= or =list=).  It's ignored for plain post URLs and external links.
 
-** Selective static copy
+* Section landings
 
-=org-bootstrap-publish-static-dirs= controls which subtrees of the source file's directory are copied into =public/=.  The default is the whole =static/= folder, which is fine when one folder serves one site.  Set it to a list of nested paths to copy only what a given site needs:
+Each distinct =EXPORT_HUGO_SECTION= root automatically gets a =/<root>/index.html= listing every post in that section (and sub-sections), unless a heading with =EXPORT_FILE_NAME: index= already owns the URL.  Pages paginate at =org-bootstrap-publish-posts-per-page= using =/<root>/page/N/= for the second page onwards.
+
+This means a sidebar link to =/blog/= or =/photos/= works without you having to hand-author a landing post for every section.
+
+* Disqus comments
 
 #+begin_src elisp
-;; Art site: skip emacs/, kate/, photos/, etc.
-(setq org-bootstrap-publish-static-dirs
-      '("static/art--gallery" "static/art--videos" "static/art--other"))
+(setq org-bootstrap-publish-disqus-shortname "your-shortname")
 #+end_src
 
-The destination directory tree is created automatically, so nested entries work without any further setup.
+Set per site to keep threads partitioned (e.g. one shortname for the umbrella, another for a sub-site).  The injected embed script skips =localhost= / =127.0.0.1= so the dev server doesn't create stray threads under your account.  =nil= disables.
 
-* Customization
+* Performance: the cross-build cache
 
-| Variable                                      | Meaning                                            |
-|-----------------------------------------------+----------------------------------------------------|
-| =org-bootstrap-publish-source-file=           | The Org file to publish.                           |
-| =org-bootstrap-publish-source-files=          | List of Org files to publish (overrides above).    |
-| =org-bootstrap-publish-menu-links=            | Sidebar =(label . url)= alist for arbitrary links. |
-| =org-bootstrap-publish-output-dir=            | Output directory (default =public/= under pwd).    |
-| =org-bootstrap-publish-site-title=            | Sidebar title.                                     |
-| =org-bootstrap-publish-site-tagline=          | Sidebar sub-title.                                 |
-| =org-bootstrap-publish-site-url=              | Canonical URL, used in the Atom feed.              |
-| =org-bootstrap-publish-site-path=             | URL prefix (=/= for root, =/repo/= for subpath).   |
-| =org-bootstrap-publish-author=                | Author name.                                       |
-| =org-bootstrap-publish-posts-per-page=        | How many posts appear on the index page.           |
-| =org-bootstrap-publish-exclude-tags=          | Tags that skip a heading (default =("noexport")=). |
-| =org-bootstrap-publish-static-dirs=           | Dirs copied verbatim next to the source file.      |
-| =org-bootstrap-publish-bootstrap-css= / =-js= | Bootstrap 5 CDN URLs (override to vendor).         |
-| =org-bootstrap-publish-highlight-css= / =-js= | highlight.js CDN URLs (nil to disable).            |
+Big sites benefit from =org-bootstrap-publish-cache-dir= (defaults to =$XDG_CACHE_HOME/org-bootstrap-publish/=).  Rendered =ox-html= output is keyed by a sha256 of the Org input; warm rebuilds skip =ox-html= entirely for posts that haven't changed.  Stale entries are swept at the end of each build.
 
-* Post properties
+Set the var to =nil= to disable caching entirely.  The cache lives outside =output-dir=, so it never gets deployed.
 
-The package reads these properties from each heading's drawer:
+* Async builds
 
-| Property                           | Use                                                            |
-|------------------------------------+----------------------------------------------------------------|
-| =EXPORT_FILE_NAME=                 | Post slug (lowercased; =index= → URL is =/<section>/=).        |
-| =EXPORT_HUGO_SECTION=              | URL prefix.  Posts live at =/<section>/<slug>/=.               |
-| =EXPORT_HUGO_LASTMOD=              | Post timestamp.  Parses =<YYYY-MM-DD HH:MM>=.                  |
-| =EXPORT_HUGO_TYPE=                 | =gallery= renders a masonry grid from =static/<section>/=.     |
-| =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= | =:thumbnail /emacs/foo.jpg= → card image.                      |
+=M-x org-bootstrap-publish-async= forks =emacs --batch -Q= and runs the build there, keeping your editor responsive.  Progress streams to the echo area; the full transcript lands in =*obp-build*=.
 
-Heading tags become tag pages.  The =noexport= tag skips a heading.
+=M-x org-bootstrap-publish-async-abort= kills a running child cleanly.
 
-* Gallery posts
-
-A gallery is just a regular post with two extra drawer entries:
-
-#+begin_src org
-,* Gallery -> Portraits :portrait:gallery:artrage:
-:PROPERTIES:
-:EXPORT_FILE_NAME: index
-:EXPORT_HUGO_SECTION: art--gallery/portraits
-:EXPORT_HUGO_TYPE: gallery
-:EXPORT_HUGO_LASTMOD: 2023-03-05
-:EXPORT_HUGO_CUSTOM_FRONT_MATTER+: :thumbnail /art--gallery/gallery--portraits.jpg
-:END:
-A short paragraph that appears above the grid.
-
-#+hugo: more
-#+end_src
-
-At build time the package walks =static/art--gallery/portraits/= relative to the source file, collects every =.jpg/.png/.gif/.webp/.tiff/.bmp=, sorts them by filename descending (so date-prefixed files come out newest-first), and emits a Bootstrap masonry grid pointing at each image.  The =index= slug collapses the URL to =/art--gallery/portraits/= to match Hugo's content-bundle convention.
-
-For this to work, =static/art--gallery= (or whichever subtree holds the gallery images) must be in =org-bootstrap-publish-static-dirs= so it gets copied to the output.  See "Selective static copy" below.
-
-* Preview
-
-** Inside Emacs
-
-=M-x org-bootstrap-publish-serve= builds, opens a browser at =http://localhost:8080=, and installs an =after-save-hook= so editing the source file rebuilds just that post plus the listings (~1 second).  =M-x org-bootstrap-publish-stop= shuts the server down again.
-
-** From a shell
-
-After a batch build, serve the =public/= folder directly:
-
-#+begin_src sh
-cd public && python3 -m http.server 8080
-#+end_src
-
-Then walk a few representative URLs to spot-check the build before deploying — at minimum the index, a regular post, the archive, the tags index, and (if relevant) a gallery page:
-
-#+begin_src
-http://localhost:8080/
-http://localhost:8080/posts.html
-http://localhost:8080/tags.html
-http://localhost:8080/<section>/<slug>/             # a regular post
-http://localhost:8080/art--gallery/portraits/       # a gallery page
-http://localhost:8080/index.xml                     # Atom feed
-#+end_src
+The save-hook rebuild runs synchronously in "fast mode" — it skips per-tag HTML, per-tag feeds, and the site feed, since those embed fully exported post bodies and add ~10 s on a large site.  Fast-mode rebuilds complete in ~0.5 s; the skipped listings refresh on the next full build.
 
 * Deploy
 
-- Cloudflare Pages: =wrangler pages deploy public --project-name=<name>=
-- Netlify:          drag-drop =public/=, or =netlify deploy --prod --dir public=
-- GitHub Pages:     see =workflows/pages.yml= for a CI-side build, or
-                    commit =public/= on a =gh-pages= branch
-- Local push:       =M-x org-bootstrap-publish-publish= rsyncs into
-                    =org-bootstrap-publish-deploy-dir=, commits, pushes
+| Cloudflare Pages | =wrangler pages deploy public --project-name=<name>=                        |
+| Netlify          | drag-drop =public/=, or =netlify deploy --prod --dir public=                |
+| GitHub Pages     | see =workflows/pages.yml= for a CI build, or commit =public/= on =gh-pages= |
+| Local push       | =M-x org-bootstrap-publish-publish= rsyncs into =-deploy-dir=, commits, pushes |
+
+For =org-bootstrap-publish-publish= specifically:
+
+#+begin_src elisp
+(setq org-bootstrap-publish-deploy-dir    "~/source/repos/site-deploy"
+      org-bootstrap-publish-deploy-remote "origin"
+      org-bootstrap-publish-deploy-branch "main"
+      org-bootstrap-publish-publish-preserve '("CNAME" ".nojekyll"))
+#+end_src
+
+A =.nojekyll= is written into the deploy dir so GitHub Pages serves underscore-prefixed paths.
+
+* Reference: customisation variables
+
+| Variable                                       | Purpose                                                       |
+|------------------------------------------------+---------------------------------------------------------------|
+| =org-bootstrap-publish-source-file=            | Single Org file to publish.                                   |
+| =org-bootstrap-publish-source-files=           | List of Org files (overrides =-source-file=).                 |
+| =org-bootstrap-publish-output-dir=             | Output directory.  Default: =public/= under pwd.              |
+| =org-bootstrap-publish-cache-dir=              | HTML cache root.  =nil= disables.  Default: XDG cache.        |
+| =org-bootstrap-publish-site-title=             | Sidebar title.                                                |
+| =org-bootstrap-publish-site-tagline=           | Sidebar subtitle.                                             |
+| =org-bootstrap-publish-site-url=               | Canonical URL, used in feeds.                                 |
+| =org-bootstrap-publish-site-path=              | URL prefix.  =/= for root, =/repo/= for subpath hosting.      |
+| =org-bootstrap-publish-author=                 | Author name.                                                  |
+| =org-bootstrap-publish-posts-per-page=         | Posts per index page.  Default: 24.                           |
+| =org-bootstrap-publish-exclude-tags=           | Tags that skip a heading.  Default: =("noexport")=.           |
+| =org-bootstrap-publish-static-dirs=            | Subtrees of source file's directory copied to output.         |
+| =org-bootstrap-publish-menu-links=             | Sidebar =(label . url)= alist (or long form with =:style=).   |
+| =org-bootstrap-publish-menu-tags=              | Deprecated; use =-menu-links= instead.                        |
+| =org-bootstrap-publish-layout=                 | =sidebar= / =rightbar= / =topbar=.                            |
+| =org-bootstrap-publish-theme-overrides=        | Alist of CSS custom-property overrides.                       |
+| =org-bootstrap-publish-background-image=       | URL or path for body background image.  =nil= disables.       |
+| =org-bootstrap-publish-background-blur=        | Px blur on the background image.  =nil= or 0 = crisp.         |
+| =org-bootstrap-publish-background-opacity=     | 0.0 – 1.0 opacity on the background image.  =nil= = opaque.   |
+| =org-bootstrap-publish-disqus-shortname=       | Disqus shortname.  =nil= disables comments.                   |
+| =org-bootstrap-publish-shortcodes=             | Alist of =(NAME . FUNCTION)= for custom Hugo shortcodes.      |
+| =org-bootstrap-publish-bootstrap-css= / =-js=  | Bootstrap 5 URLs.  Override to vendor.                        |
+| =org-bootstrap-publish-highlight-css= / =-js=  | highlight.js URLs.  =nil= disables.                           |
+| =org-bootstrap-publish-asset-file=             | Path to the stylesheet copied as =assets/style.css=.          |
+| =org-bootstrap-publish-deploy-dir=             | Local clone the publish command rsyncs into.                  |
+| =org-bootstrap-publish-deploy-remote= / =-branch= | Git remote/branch for the publish command.                 |
+| =org-bootstrap-publish-publish-preserve=       | Files preserved in the deploy dir across publishes.           |
+| =org-bootstrap-publish-publish-todo-states=    | Org TODO states a post must be in to publish.  Default: =DONE=. |
+| =org-bootstrap-publish-serve-port=             | Port for =org-bootstrap-publish-serve=.  Default: 8080.       |
+
+* Reference: post properties
+
+The package reads these from each heading's property drawer:
+
+| Property                           | Use                                                          |
+|------------------------------------+--------------------------------------------------------------|
+| =EXPORT_FILE_NAME=                 | Slug (lowercased; =index= → URL is =/<section>/=).           |
+| =EXPORT_HUGO_SECTION=              | URL prefix.  Posts live at =/<section>/<slug>/=.             |
+| =EXPORT_HUGO_LASTMOD=              | Sortable timestamp.  Parses =<YYYY-MM-DD HH:MM>=.            |
+| =EXPORT_HUGO_TYPE=                 | =gallery= renders a masonry grid from =static/<section>/=.   |
+| =EXPORT_HUGO_CUSTOM_FRONT_MATTER+= | =:thumbnail /path/foo.jpg= → card image.                     |
+
+Heading tags become tag pages.  Headings tagged =noexport= (or whatever's in =-exclude-tags=) are skipped entirely.
+
+* Reference: interactive commands
+
+| Command                                  | Purpose                                                     |
+|------------------------------------------+-------------------------------------------------------------|
+| =M-x org-bootstrap-publish=              | Synchronous build.                                          |
+| =M-x org-bootstrap-publish-async=        | Async build in a child Emacs.                               |
+| =M-x org-bootstrap-publish-async-abort=  | Kill a running async build.                                 |
+| =M-x org-bootstrap-publish-rebuild-current-post= | Fast incremental rebuild of the post in the current buffer. |
+| =M-x org-bootstrap-publish-serve=        | Async build, dev server, browser, save-hook rebuilds.       |
+| =M-x org-bootstrap-publish-stop=         | Stop the dev server, abort async, remove save hooks.        |
+| =M-x org-bootstrap-publish-publish=      | Build, rsync into =-deploy-dir=, commit, push.              |
