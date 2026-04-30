@@ -40,6 +40,7 @@
 (require 'org)
 (require 'org-element)
 (require 'ox-html)
+(require 'htmlize nil t)
 (require 'subr-x)
 (require 'xml)
 
@@ -269,6 +270,15 @@ with or without a surrounding `#+begin_export md' wrapper."
   "Optional URL for the highlight.js library, or nil to disable."
   :type '(choice (const :tag "Disable" nil) string))
 
+(defcustom org-bootstrap-publish-htmlize-output-type 'inline-css
+  "Output type for htmlize when exporting source blocks.
+If nil, source blocks are exported as plain text inside <pre> tags (default behaviour), and you can rely on `org-bootstrap-publish-highlight-js` for client-side highlighting.
+If \\='inline-css, syntax highlighting is added as inline HTML styles. This is useful for RSS readers.
+If \\='css, styling is added via CSS classes."
+  :type '(choice (const :tag "No htmlize (plain text)" nil)
+                 (const :tag "Inline CSS" inline-css)
+                 (const :tag "External CSS" css)))
+
 (defcustom org-bootstrap-publish-deploy-dir nil
   "Local git checkout that `org-bootstrap-publish-publish' builds into.
 This is just a regular clone of the repo that serves your site
@@ -279,6 +289,11 @@ No `git worktree' or anything fancy required -- a plain
 
 (defcustom org-bootstrap-publish-deploy-remote "origin"
   "Git remote used by `org-bootstrap-publish-publish'."
+  :type 'string)
+
+(defcustom org-bootstrap-publish-date-format "%B %-d, %Y %H:%M"
+  "Format string used for displaying the human-readable date and time.
+Defaults to showing the month, day, year, and time (e.g. `April 21, 2026 15:30`)."
   :type 'string)
 
 (defcustom org-bootstrap-publish-deploy-branch "main"
@@ -318,7 +333,7 @@ No `git worktree' or anything fancy required -- a plain
   (when time (format-time-string "%Y-%m-%dT%H:%M:%S%z" time)))
 
 (defun org-bootstrap-publish--human-date (time)
-  (when time (format-time-string "%B %-d, %Y" time)))
+  (when time (format-time-string org-bootstrap-publish-date-format time)))
 
 (defun org-bootstrap-publish--mkdir (dir)
   (unless (file-directory-p dir) (make-directory dir t)))
@@ -625,7 +640,10 @@ Non-nil enables sweeping of stale entries.")
 
 (defun org-bootstrap-publish--cache-key (str)
   (secure-hash 'sha256
-               (format "v%d:%s" org-bootstrap-publish--cache-version str)))
+               (format "v%d:%s:%s"
+                       org-bootstrap-publish--cache-version
+                       org-bootstrap-publish-htmlize-output-type
+                       str)))
 
 (defun org-bootstrap-publish--cache-path (key)
   (and org-bootstrap-publish--cache-current-dir
@@ -686,7 +704,7 @@ across builds and survive the sweep at the end of each build."
                (org-export-with-sub-superscripts '{})
                (org-export-use-babel nil)
                (org-confirm-babel-evaluate nil)
-               (org-html-htmlize-output-type nil)
+               (org-html-htmlize-output-type org-bootstrap-publish-htmlize-output-type)
                (org-html-container-element "section")
                (inhibit-message t))
            (org-bootstrap-publish--bootstrapify
@@ -847,7 +865,7 @@ empty string when neither knob is configured."
      "  </main>\n"
      "</div>\n"
      (format "<script src=\"%s\"></script>\n" bs-js)
-     (when hl-js
+     (when (and hl-js (not org-bootstrap-publish-htmlize-output-type))
        (concat (format "<script src=\"%s\"></script>\n" hl-js)
                "<script>hljs.highlightAll();</script>\n"))
      (format "<script src=\"%s\" defer></script>\n"
