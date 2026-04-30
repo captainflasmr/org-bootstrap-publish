@@ -1094,7 +1094,7 @@ static/<section>/ relative to SOURCE-FILE."
          (lambda (name)
            (let ((u (concat url-base name)))
              (format
-              "<div class=\"col-6 col-md-3 col-xl-2 pb-1 px-2\"><a href=\"%s\"><img src=\"%s\" alt=\"\" class=\"img-fluid\"></a></div>\n"
+              "<div class=\"col-6 col-md-3 col-xl-3 pb-1 px-2\"><a href=\"%s\"><img src=\"%s\" alt=\"\" class=\"img-fluid\"></a></div>\n"
               u u)))
          images "")
         "</div>\n"
