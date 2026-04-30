@@ -764,10 +764,16 @@ Emits CSS variable overrides from `org-bootstrap-publish-theme-overrides'
 against `:root' and every `[data-obp-theme=...]' selector so they
 survive the light/dark/emacs toggle.  When
 `org-bootstrap-publish-background-image' is set, also emits a
-`body' rule painting it across the viewport, plus a
-`.content-inner' rule giving the post column a solid `--obp-body-bg'
-backing so text stays readable over a busy image.  Returns the
-empty string when neither knob is configured."
+`body::before' rule painting it across the viewport plus a
+`.content-inner' rule giving the whole content column a solid
+`--obp-body-bg' block so post text and index cards stay readable
+over the image, which shows in the gutters around the block.  The
+`body' itself is painted with `--obp-sidebar-bg' so that, when
+opacity is applied, the colour bleeding through the image stays
+consistent with the sidebar.  The image URL is routed through
+`org-bootstrap-publish--url' when it isn't already absolute so
+relative paths resolve from any post URL.  Returns the empty
+string when neither knob is configured."
   (let* ((overrides org-bootstrap-publish-theme-overrides)
          (bg        org-bootstrap-publish-background-image)
          (blur      org-bootstrap-publish-background-blur)
@@ -782,15 +788,19 @@ empty string when neither knob is configured."
            overrides "\n"))
          (body-rule
           (and (stringp bg) (not (string-empty-p bg))
-               (let* ((extras
+               (let* ((bg-url (if (string-match-p "\\`\\(?:https?:\\|/\\|data:\\)" bg)
+                                  bg
+                                (org-bootstrap-publish--url bg)))
+                      (extras
                        (concat
                         (when (and (numberp blur) (> blur 0))
                           (format "  filter: blur(%dpx);\n  transform: scale(1.05);\n" blur))
                         (when (numberp opacity)
                           (format "  opacity: %s;\n" opacity)))))
                  (concat
+                  "body {\n  background: var(--obp-sidebar-bg);\n}\n"
                   (format "body::before {\n  content: \"\";\n  position: fixed;\n  inset: 0;\n  background-image: url(%S);\n  background-size: cover;\n  background-position: center;\n%s  z-index: -1;\n}\n"
-                          bg extras)
+                          bg-url extras)
                   ".content-inner {\n  background: var(--obp-body-bg);\n  padding: 2rem 2.5rem;\n  border-radius: 6px;\n}\n")))))
     (if (and (string-empty-p decls) (not body-rule)) ""
       (concat
