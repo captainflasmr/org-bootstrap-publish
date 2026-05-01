@@ -752,7 +752,7 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
 (defun org-bootstrap-publish--tag-pills (tags)
   (mapconcat
    (lambda (tag)
-     (format "<a class=\"badge rounded-pill text-bg-secondary text-decoration-none me-1\" href=\"%s\">#%s</a>"
+      (format "<a class=\"badge rounded-pill text-bg-secondary text-decoration-none me-1\" href=\"%s\">%s</a>"
              (org-bootstrap-publish--tag-url tag)
              (org-bootstrap-publish--escape tag)))
    tags ""))
@@ -808,7 +808,13 @@ string when neither knob is configured."
                   "body {\n  background: var(--obp-sidebar-bg);\n}\n"
                   (format "body::before {\n  content: \"\";\n  position: fixed;\n  inset: 0;\n  background-image: url(%S);\n  background-size: cover;\n  background-position: center;\n%s  z-index: -1;\n}\n"
                           bg-url extras)
-                  ".content-inner {\n  background: color-mix(in srgb, var(--obp-body-bg) 92%, var(--obp-sidebar-bg));\n  border: 3px solid var(--obp-sidebar-bg);\n  padding: 2rem 2.5rem;\n  border-radius: 6px;\n}\n")))))
+                   ".content-inner {\n  background: color-mix(in srgb, var(--obp-body-bg) 85%, var(--obp-sidebar-bg));\n  border: 3px solid var(--obp-sidebar-bg);\n  padding: 2rem 2.5rem;\n  border-radius: 6px;\n}\n"
+                   ".content-inner-listing {\n  background: color-mix(in srgb, var(--obp-sidebar-bg) 80%, var(--obp-sidebar-fg));\n  color: var(--obp-sidebar-fg);\n  border-radius: 12px;\n}\n"
+                   ".content-inner-listing .page-header h2 { color: var(--obp-sidebar-fg); }\n"
+                   ".content-inner-listing .text-muted { color: var(--obp-sidebar-muted) !important; }\n"
+                   ".content-inner-listing .post-list a { color: var(--obp-sidebar-fg); }\n"
+                   ".content-inner-listing .post-list a:hover { color: var(--obp-accent); }\n"
+                   ".content-inner-listing h3 { color: var(--obp-sidebar-fg); }\n")))))
     (if (and (string-empty-p decls) (not body-rule)) ""
       (concat
        "<style>\n"
@@ -817,7 +823,7 @@ string when neither knob is configured."
        (or body-rule "")
        "</style>\n"))))
 
-(defun org-bootstrap-publish--page (title body)
+(defun org-bootstrap-publish--page (title body &optional type)
   (let ((bs-css   org-bootstrap-publish-bootstrap-css)
         (bs-js    org-bootstrap-publish-bootstrap-js)
         (hl-css   org-bootstrap-publish-highlight-css)
@@ -825,7 +831,8 @@ string when neither knob is configured."
         (site     (org-bootstrap-publish--escape org-bootstrap-publish-site-title))
         (tagline  (org-bootstrap-publish--escape org-bootstrap-publish-site-tagline))
         (author   (org-bootstrap-publish--escape org-bootstrap-publish-author))
-        (year     (format-time-string "%Y")))
+        (year     (format-time-string "%Y"))
+        (ci-class (if (eq type 'listing) "content-inner content-inner-listing" "content-inner")))
     (concat
      "<!doctype html>\n"
      "<html lang=\"en\">\n"
@@ -878,7 +885,7 @@ string when neither knob is configured."
      "    </div>\n"
      "  </aside>\n"
      "  <main class=\"content\">\n"
-     "    <div class=\"content-inner\">\n"
+      (format "    <div class=\"%s\">\n" ci-class)
      body
      "    </div>\n"
      "  </main>\n"
@@ -974,10 +981,10 @@ With no args, renders the first page only (legacy behaviour)."
          (end   (min (+ start per) (length posts)))
          (slice (cl-subseq posts start end))
          (cards (mapconcat #'org-bootstrap-publish--card slice ""))
-         (header (if (= page 1)
-                     "<h2>Latest posts</h2>"
-                   (format "<h2>Latest posts &mdash; page %d of %d</h2>"
-                           page total))))
+          (header (if (= page 1)
+                      ""
+                    (format "<h2>Latest posts &mdash; page %d of %d</h2>"
+                            page total))))
     (concat
      (format "<header class=\"page-header mb-4\">%s</header>\n" header)
      "<div class=\"row\">\n"
@@ -1593,65 +1600,70 @@ the next full build."
          (expand-file-name rel out)
          (org-bootstrap-publish--page
           title
-          (org-bootstrap-publish--render-index posts page total))))))
-  (unless fast
-    (dolist (tc tag-counts)
-      (let* ((tag (car tc))
-             (tag-path (org-bootstrap-publish--tag-path tag))
-             (matching (org-bootstrap-publish--posts-with-tag tag posts)))
+          (org-bootstrap-publish--render-index posts page total)
+          'listing)))))
+    (unless fast
+      (dolist (tc tag-counts)
+        (let* ((tag (car tc))
+               (tag-path (org-bootstrap-publish--tag-path tag))
+               (matching (org-bootstrap-publish--posts-with-tag tag posts)))
+          (org-bootstrap-publish--write
+           (expand-file-name (concat tag-path "index.html") out)
+           (org-bootstrap-publish--page
+            (format "#%s | %s" tag org-bootstrap-publish-site-title)
+            (org-bootstrap-publish--render-tag-page tag matching)
+            'listing))
+          (org-bootstrap-publish--write
+           (expand-file-name (concat tag-path "index.xml") out)
+           (org-bootstrap-publish--feed
+            matching
+            (format "%s on %s" tag org-bootstrap-publish-site-title)
+            tag-path)))))
+    (dolist (root (org-bootstrap-publish--all-section-roots posts))
+      (unless (org-bootstrap-publish--section-has-landing-p root posts)
+        (let* ((matching (org-bootstrap-publish--posts-in-section root posts))
+               (per      org-bootstrap-publish-posts-per-page)
+               (total    (max 1 (ceiling (/ (float (length matching)) per)))))
+          (dotimes (i total)
+            (let* ((page (1+ i))
+                   (rel  (if (= page 1)
+                             (concat root "/index.html")
+                           (concat root "/page/" (number-to-string page) "/index.html")))
+                   (title (if (= page 1)
+                              (format "%s | %s" root org-bootstrap-publish-site-title)
+                            (format "%s page %d | %s" root page
+                                    org-bootstrap-publish-site-title))))
+              (org-bootstrap-publish--write
+               (expand-file-name rel out)
+               (org-bootstrap-publish--page
+                title
+                (org-bootstrap-publish--render-section-page
+                 root matching page total)
+                'listing)))))))
+    (org-bootstrap-publish--write
+     (expand-file-name "posts.html" out)
+     (org-bootstrap-publish--page
+      (format "All posts | %s" org-bootstrap-publish-site-title)
+      (org-bootstrap-publish--render-archive posts)
+      'listing))
+    (org-bootstrap-publish--write
+     (expand-file-name "tags.html" out)
+     (org-bootstrap-publish--page
+      (format "Tags | %s" org-bootstrap-publish-site-title)
+      (org-bootstrap-publish--render-tags-index tag-counts)
+      'listing))
+    (unless fast
+      (let ((feed (org-bootstrap-publish--feed posts)))
         (org-bootstrap-publish--write
-         (expand-file-name (concat tag-path "index.html") out)
-         (org-bootstrap-publish--page
-          (format "#%s | %s" tag org-bootstrap-publish-site-title)
-          (org-bootstrap-publish--render-tag-page tag matching)))
+         (expand-file-name "index.xml" out) feed)
         (org-bootstrap-publish--write
-         (expand-file-name (concat tag-path "index.xml") out)
-         (org-bootstrap-publish--feed
-          matching
-          (format "%s on %s" tag org-bootstrap-publish-site-title)
-          tag-path)))))
-  (dolist (root (org-bootstrap-publish--all-section-roots posts))
-    (unless (org-bootstrap-publish--section-has-landing-p root posts)
-      (let* ((matching (org-bootstrap-publish--posts-in-section root posts))
-             (per      org-bootstrap-publish-posts-per-page)
-             (total    (max 1 (ceiling (/ (float (length matching)) per)))))
-        (dotimes (i total)
-          (let* ((page (1+ i))
-                 (rel  (if (= page 1)
-                           (concat root "/index.html")
-                         (concat root "/page/" (number-to-string page) "/index.html")))
-                 (title (if (= page 1)
-                            (format "%s | %s" root org-bootstrap-publish-site-title)
-                          (format "%s page %d | %s" root page
-                                  org-bootstrap-publish-site-title))))
-            (org-bootstrap-publish--write
-             (expand-file-name rel out)
-             (org-bootstrap-publish--page
-              title
-              (org-bootstrap-publish--render-section-page
-               root matching page total))))))))
-  (org-bootstrap-publish--write
-   (expand-file-name "posts.html" out)
-   (org-bootstrap-publish--page
-    (format "All posts | %s" org-bootstrap-publish-site-title)
-    (org-bootstrap-publish--render-archive posts)))
-  (org-bootstrap-publish--write
-   (expand-file-name "tags.html" out)
-   (org-bootstrap-publish--page
-    (format "Tags | %s" org-bootstrap-publish-site-title)
-    (org-bootstrap-publish--render-tags-index tag-counts)))
-  (unless fast
-    (let ((feed (org-bootstrap-publish--feed posts)))
-      (org-bootstrap-publish--write
-       (expand-file-name "index.xml" out) feed)
-      (org-bootstrap-publish--write
-       (expand-file-name "feed.xml" out) feed)))
-  (org-bootstrap-publish--write
-   (expand-file-name "index.json" out)
-   (org-bootstrap-publish--index-json posts))
-  (org-bootstrap-publish--write
-   (expand-file-name "reload-token" out)
-   (format "%.6f\n" (float-time))))
+         (expand-file-name "feed.xml" out) feed)))
+    (org-bootstrap-publish--write
+     (expand-file-name "index.json" out)
+     (org-bootstrap-publish--index-json posts))
+    (org-bootstrap-publish--write
+     (expand-file-name "reload-token" out)
+     (format "%.6f\n" (float-time))))
 
 (defun org-bootstrap-publish--source-files ()
   "List of source files to publish, expanded to absolute paths.
