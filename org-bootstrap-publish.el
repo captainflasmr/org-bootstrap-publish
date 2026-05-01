@@ -618,7 +618,7 @@ entries in `org-bootstrap-publish-shortcodes' share the dispatch."
            body t t)))
   body)
 
-(defconst org-bootstrap-publish--cache-version 3
+(defconst org-bootstrap-publish--cache-version 5
   "Bump to invalidate every cached `--org->html' result.
 Increment when the renderer's output changes for the same input
 (e.g. shortcode rewriter, bootstrapifier, or ox-html settings).")
@@ -752,7 +752,7 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
 (defun org-bootstrap-publish--tag-pills (tags)
   (mapconcat
    (lambda (tag)
-      (format "<a class=\"badge rounded-pill text-bg-secondary text-decoration-none me-1\" href=\"%s\">%s</a>"
+      (format "<a class=\"badge rounded-pill obp-tag text-decoration-none\" href=\"%s\">%s</a>"
              (org-bootstrap-publish--tag-url tag)
              (org-bootstrap-publish--escape tag)))
    tags ""))
@@ -1115,7 +1115,7 @@ static/<section>/ relative to SOURCE-FILE."
 (defun org-bootstrap-publish--tag-header (tag posts)
   (let ((tag-esc (org-bootstrap-publish--escape tag)))
     (concat
-     (format "<header class=\"page-header mb-4\"><h2>Posts tagged <code>#%s</code></h2>"
+     (format "<header class=\"page-header mb-4\"><h2>Posts tagged <code>%s</code></h2>"
              tag-esc)
      (format "<p class=\"text-muted\">%d post%s</p></header>\n"
              (length posts) (if (= 1 (length posts)) "" "s")))))
@@ -1194,7 +1194,7 @@ static/<section>/ relative to SOURCE-FILE."
           (lambda (tc)
             (let* ((tag (car tc))
                    (n   (cdr tc)))
-              (format "<a class=\"badge rounded-pill text-bg-light text-decoration-none me-2 mb-2 p-2\" href=\"%s\">#%s <span class=\"badge text-bg-secondary\">%d</span></a>"
+              (format "<a class=\"badge rounded-pill obp-tag text-decoration-none\" href=\"%s\">%s <span class=\"badge text-bg-secondary\">%d</span></a>"
                       (org-bootstrap-publish--tag-url tag)
                       (org-bootstrap-publish--escape tag) n)))
           tag-counts "\n")))
@@ -1609,10 +1609,10 @@ the next full build."
                (matching (org-bootstrap-publish--posts-with-tag tag posts)))
           (org-bootstrap-publish--write
            (expand-file-name (concat tag-path "index.html") out)
-           (org-bootstrap-publish--page
-            (format "#%s | %s" tag org-bootstrap-publish-site-title)
-            (org-bootstrap-publish--render-tag-page tag matching)
-            'listing))
+            (org-bootstrap-publish--page
+             (format "%s | %s" tag org-bootstrap-publish-site-title)
+             (org-bootstrap-publish--render-tag-page tag matching)
+             'listing))
           (org-bootstrap-publish--write
            (expand-file-name (concat tag-path "index.xml") out)
            (org-bootstrap-publish--feed
