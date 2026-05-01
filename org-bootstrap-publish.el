@@ -618,7 +618,7 @@ entries in `org-bootstrap-publish-shortcodes' share the dispatch."
            body t t)))
   body)
 
-(defconst org-bootstrap-publish--cache-version 5
+(defconst org-bootstrap-publish--cache-version 7
   "Bump to invalidate every cached `--org->html' result.
 Increment when the renderer's output changes for the same input
 (e.g. shortcode rewriter, bootstrapifier, or ox-html settings).")
@@ -1052,7 +1052,6 @@ create stray comment threads under your shortname."
      (if tags (concat " &middot; " (org-bootstrap-publish--tag-pills tags)) "")
      "</p>\n"
      "</header>\n"
-     (org-bootstrap-publish--post-nav newer older)
      (format "<div class=\"post-body\">%s</div>\n" body)
      (org-bootstrap-publish--post-nav newer older)
      (org-bootstrap-publish--disqus-snippet)
@@ -1090,7 +1089,6 @@ static/<section>/ relative to SOURCE-FILE."
      (if tags (concat " &middot; " (org-bootstrap-publish--tag-pills tags)) "")
      "</p>\n"
      "</header>\n"
-     (org-bootstrap-publish--post-nav newer older)
      (format "<div class=\"post-body\">%s</div>\n" body)
      (if (null images)
          (format "<p class=\"text-muted\">No images found in <code>static/%s/</code>.</p>\n"

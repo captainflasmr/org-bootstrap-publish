@@ -259,6 +259,7 @@ body {
 .post-body a:hover { color: var(--obp-accent); }
 
 /* Index pagination — tie Bootstrap's pagination variables to our theme */
+/* Index pagination — tie Bootstrap's pagination variables to our theme */
 .pagination {
   --bs-pagination-color:             var(--obp-link);
   --bs-pagination-bg:                var(--obp-card-bg);
