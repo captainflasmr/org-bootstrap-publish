@@ -618,7 +618,7 @@ entries in `org-bootstrap-publish-shortcodes' share the dispatch."
            body t t)))
   body)
 
-(defconst org-bootstrap-publish--cache-version 7
+(defconst org-bootstrap-publish--cache-version 10
   "Bump to invalidate every cached `--org->html' result.
 Increment when the renderer's output changes for the same input
 (e.g. shortcode rewriter, bootstrapifier, or ox-html settings).")
@@ -809,7 +809,7 @@ string when neither knob is configured."
                   (format "body::before {\n  content: \"\";\n  position: fixed;\n  inset: 0;\n  background-image: url(%S);\n  background-size: cover;\n  background-position: center;\n%s  z-index: -1;\n}\n"
                           bg-url extras)
                    ".content-inner {\n  background: color-mix(in srgb, var(--obp-body-bg) 85%, var(--obp-sidebar-bg));\n  border: 3px solid var(--obp-sidebar-bg);\n  padding: 2rem 2.5rem;\n  border-radius: 6px;\n}\n"
-                   ".content-inner-listing {\n  background: color-mix(in srgb, var(--obp-sidebar-bg) 80%, var(--obp-sidebar-fg));\n  color: var(--obp-sidebar-fg);\n  border-radius: 12px;\n}\n"
+                    ".content-inner-listing {\n  background: color-mix(in srgb, var(--obp-sidebar-bg) 50%, transparent) !important;\n  backdrop-filter: blur(8px);\n  color: var(--obp-sidebar-fg);\n  border-radius: 12px;\n}\n"
                    ".content-inner-listing .page-header h2 { color: var(--obp-sidebar-fg); }\n"
                    ".content-inner-listing .text-muted { color: var(--obp-sidebar-muted) !important; }\n"
                    ".content-inner-listing .post-list a { color: var(--obp-sidebar-fg); }\n"
