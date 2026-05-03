@@ -4,24 +4,30 @@
 
 All notable changes to this package.
 
-* Unreleased
+* 0.1.0 (2026-05-03)
+
+First numbered release.  Everything below was previously tracked under "Unreleased".
 
 ** Added
 
 - Multi-source sites via =org-bootstrap-publish-source-files= (plural).  Merges headings from a list of Org files into one site; save-hook walks the full list for incremental rebuilds.
-- Sidebar links with =org-bootstrap-publish-menu-links= (alist of =label . url= pairs).  Replaces =-menu-tags=, which is now deprecated but still works (translated into the merged list with its original bullet-list style).  Entries support =:style cards= or =:style list= to control rendering.
+- Sidebar links with =org-bootstrap-publish-menu-links= (alist of =label . url= pairs).  Entries support =:style cards= or =:style list= to control rendering.  =-menu-tags= is deprecated, translated into the merged list with its original bullet-list style.
 - Section landing pages.  Each distinct =EXPORT_HUGO_SECTION= root gets =/<root>/index.html= showing every post in that section, with pagination at =/page/N/=.
-- Cross-build HTML cache.  =org-bootstrap-publish-cache-dir= (default: XDG cache) stores rendered =ox-html= output keyed by sha256 of the input.  Warm rebuilds skip unchanged posts; stale entries swept at end of build.  Per-build memoization of cards and Atom entries on top of this took the dyerdwelling site from 53 s (cold) to 33 s (warm).
-- Gallery posts.  =EXPORT_HUGO_TYPE: gallery= renders a Bootstrap masonry grid from images in =static/<section>/=, sorted by filename descending.
-- =EXPORT_FILE_NAME: index= collapses the post URL to =/<section>/= (Hugo content-bundle convention).
-- Hugo-shortcode preprocessor for =youtube=, =video=, and =figure= — works inline or inside =#+begin_export md= blocks.  User-extensible via =org-bootstrap-publish-shortcodes= alist.
+- Cross-build HTML cache.  =org-bootstrap-publish-cache-dir= (default: XDG cache) stores rendered =ox-html= output keyed by sha256 of the input.  Warm rebuilds skip unchanged posts; stale entries swept at end of build.  Per-build memoization of cards and Atom entries further reduces render time.
+- Gallery posts.  =EXPORT_HUGO_TYPE: gallery= renders a Bootstrap masonry grid from images in =static/<section>/=.
+- =EXPORT_FILE_NAME: index= collapses the post URL to =/<section>/=.
+- Hugo-shortcode preprocessor for =youtube=, =video=, and =figure=.  User-extensible via =org-bootstrap-publish-shortcodes=.
 - Light/dark/emacs theme toggle with =localStorage= persistence and =prefers-color-scheme= detection.  Per-site colour overrides via =org-bootstrap-publish-theme-overrides=.
 - Body background image, blur, and opacity (=org-bootstrap-publish-background-image=, =-blur=, =-opacity=).
 - Disqus comments per site (=org-bootstrap-publish-disqus-shortname=); skips localhost.
 - Layout choice: =org-bootstrap-publish-layout= (=sidebar= / =rightbar= / =topbar=).
 - Client-side article search (=index.json= + =search.js=).
 - Live-reload for the dev server (polls =reload-token= from localhost only).
-- =org-bootstrap-publish-publish= now builds async then deploys to Cloudflare Pages via =wrangler pages deploy=.
+- =M-x org-bootstrap-publish-publish= builds async then deploys to Cloudflare Pages via =wrangler pages deploy=.  All output (build + deploy) streams to a single =*obp-publish*= buffer; scrolling up to inspect output is not interrupted by new writes.
+- =M-x org-bootstrap-publish-publish-abort= kills the running build or deploy and stops a publish-all chain.
+- =org-bootstrap-publish-cloudflare-project= and =org-bootstrap-publish-cloudflare-branch= replace the old git-push deploy variables.  =org-bootstrap-publish-wrangler-executable= (default ="wrangler"=) locates the CLI.
+- CI workflow template (=workflows/pages.yml=) deploys to Cloudflare Pages via wrangler.
+- =org-bootstrap-publish-site-path= docstring updated — no longer references GitHub Pages.
 
 ** Changed
 
@@ -31,7 +37,11 @@ All notable changes to this package.
 - =--copy-static= mkdirs parent dirs so nested =static/= entries work.
 - Suppress =org-confirm-babel-evaluate= during export.
 - =--rewrite-static-src= normalises =file://= URLs containing =/static/=.
-- CI workflow template now deploys to Cloudflare Pages via wrangler (was GitHub Pages).
+
+** Removed
+
+- Git-based deploy (=org-bootstrap-publish-deploy-dir=, =-deploy-remote=, =-deploy-branch=, =-publish-preserve=, =--git=, =--clean-worktree=).  Replaced by Cloudflare Pages deploy via wrangler.
+- =.nojekyll= generation (no longer relevant without GitHub Pages).
 
 * 2026-04-23
 

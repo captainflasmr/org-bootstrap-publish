@@ -1856,13 +1856,13 @@ the parent intended."
         (when callback (funcall callback (format "exit %d" rc))))))))
 
 ;;;###autoload
-(defun org-bootstrap-publish-async (&optional source-file output-dir callback)
+(defun org-bootstrap-publish-async (&optional source-file output-dir callback buffer)
   "Build the site asynchronously in a child `emacs --batch' subprocess.
 SOURCE-FILE and OUTPUT-DIR default to the configured customs.
 CALLBACK, if non-nil, is called on completion with nil on success
-or an error string on failure.  Progress is streamed to the echo
-area; full subprocess output lives in buffer
-`org-bootstrap-publish--async-buffer-name'."
+or an error string on failure.  BUFFER defaults to
+`org-bootstrap-publish--async-buffer-name'.  Progress is streamed to
+the echo area; full subprocess output lives in BUFFER."
   (interactive)
   (when (process-live-p org-bootstrap-publish--async-process)
     (user-error "An async build is already running"))
@@ -1874,7 +1874,7 @@ area; full subprocess output lives in buffer
                   org-bootstrap-publish-output-dir
                   (user-error "Set `org-bootstrap-publish-output-dir' first")))
          (pkg-dir (org-bootstrap-publish--library-dir))
-         (buf (get-buffer-create org-bootstrap-publish--async-buffer-name))
+         (buf (get-buffer-create (or buffer org-bootstrap-publish--async-buffer-name)))
          (emacs (expand-file-name invocation-name invocation-directory))
          (eval-form (org-bootstrap-publish--async-eval-form
                      (expand-file-name src)
@@ -1884,17 +1884,21 @@ area; full subprocess output lives in buffer
       (insert (format "$ %s --batch -Q -L %s -l org-bootstrap-publish \\\n  --eval %s\n\n"
                       emacs pkg-dir eval-form)))
     (message "org-bootstrap-publish: starting async build...")
-    (let ((proc
-           (make-process
-            :name "obp-build"
-            :buffer buf
-            :command (list emacs "--batch" "-Q"
-                           "-L" pkg-dir
-                           "-l" "org-bootstrap-publish"
-                           "--eval" eval-form)
-            :filter #'org-bootstrap-publish--async-filter
-            :sentinel #'org-bootstrap-publish--async-sentinel
-            :connection-type 'pipe)))
+    (let* ((use-publish-buffer (and buffer
+                                    (not (equal buffer org-bootstrap-publish--async-buffer-name))))
+           (proc
+            (make-process
+             :name "obp-build"
+             :buffer buf
+             :command (list emacs "--batch" "-Q"
+                            "-L" pkg-dir
+                            "-l" "org-bootstrap-publish"
+                            "--eval" eval-form)
+             :filter (if use-publish-buffer
+                         #'org-bootstrap-publish--publish-filter
+                       #'org-bootstrap-publish--async-filter)
+             :sentinel #'org-bootstrap-publish--async-sentinel
+             :connection-type 'pipe)))
       (process-put proc 'obp-callback callback)
       (process-put proc 'obp-start-time (float-time))
       (set-process-query-on-exit-flag proc nil)
@@ -2052,18 +2056,51 @@ Also aborts any running async build."
 
 ;;;; Cloudflare Pages deploy
 
-(defun org-bootstrap-publish--wrangler-sentinel (proc _event)
-  "Sentinel for async wrangler deploy.
-Reports success or failure in the echo area and *obp-deploy* buffer."
-  (let ((buf (process-buffer proc))
-        (exit (process-exit-status proc)))
-    (if (zerop exit)
-        (message "org-bootstrap-publish-publish: deployed ✓")
-      (with-current-buffer buf
-        (message "org-bootstrap-publish-publish: deploy failed (exit %d)" exit)
-        (insert (format "\nwrangler exited with code %d\n" exit))))))
+(defvar org-bootstrap-publish--publish-buffer-name "*obp-publish*"
+  "Buffer for the publish command's async output.")
 
-;;###autoload
+(defvar org-bootstrap-publish--deploy-process nil
+  "Running wrangler deploy process, or nil.")
+
+(defvar org-bootstrap-publish--publish-aborted nil
+  "Non-nil when `org-bootstrap-publish-publish-abort' cancels a publish-all chain.")
+
+(defun org-bootstrap-publish--publish-filter (proc string)
+  "Append STRING to the publish buffer, stripping ANSI escapes, and surface progress lines.
+Only moves point to the end if the window was already at the bottom,
+so scrolling up to inspect output is not interrupted."
+  (let ((buf (process-buffer proc))
+        (clean (replace-regexp-in-string "\x1b\\[[?0-9;]*[A-Za-z]" "" string)))
+    (when (buffer-live-p buf)
+      (with-current-buffer buf
+        (let ((win (get-buffer-window buf t))
+              (at-bottom (eq (point) (point-max))))
+          (save-excursion
+            (goto-char (point-max))
+            (insert clean))
+          (when (and win at-bottom)
+            (with-selected-window win
+              (goto-char (point-max)))))))
+    (dolist (line (split-string clean "\n" t))
+      (when (string-match-p "\\`org-bootstrap-publish:" line)
+        (message "%s" line)))))
+
+(defun org-bootstrap-publish--wrangler-sentinel (proc _event)
+  "Sentinel for async wrangler deploy."
+  (setq org-bootstrap-publish--deploy-process nil)
+  (when (memq (process-status proc) '(exit signal))
+    (let ((buf (process-buffer proc))
+          (exit (process-exit-status proc)))
+      (with-current-buffer buf
+        (goto-char (point-max))
+        (if (zerop exit)
+            (progn
+              (insert "\n✔ deployed\n")
+              (message "org-bootstrap-publish-publish: deployed ✓"))
+          (insert (format "\n✘ wrangler exited with code %d\n" exit))
+          (message "org-bootstrap-publish-publish: deploy failed (exit %d)" exit))))))
+
+;;;###autoload
 (defun org-bootstrap-publish-publish ()
   "Build the site asynchronously, then deploy to Cloudflare Pages via wrangler.
 Runs `org-bootstrap-publish-async' to build, then spawns
@@ -2072,33 +2109,65 @@ responsive throughout.
 
 Requires `org-bootstrap-publish-cloudflare-project' to be set
 and the wrangler CLI to be installed and authenticated.
-Output from wrangler is streamed to the *obp-deploy* buffer."
+Output is streamed to the *obp-publish* buffer."
   (interactive)
   (unless org-bootstrap-publish-cloudflare-project
     (user-error "Set `org-bootstrap-publish-cloudflare-project' first"))
   (let ((output-dir (expand-file-name org-bootstrap-publish-output-dir))
         (project    org-bootstrap-publish-cloudflare-project)
         (branch     org-bootstrap-publish-cloudflare-branch)
-        (wrangler   org-bootstrap-publish-wrangler-executable))
-    (message "org-bootstrap-publish-publish: async build → deploy to %s ..." project)
+        (wrangler   org-bootstrap-publish-wrangler-executable)
+        (pub-buf    (get-buffer-create org-bootstrap-publish--publish-buffer-name)))
+    (with-current-buffer pub-buf
+      (erase-buffer)
+      (insert (format "Publish → %s\n\n" project))
+      (display-buffer pub-buf))
     (org-bootstrap-publish-async
      nil nil
      (lambda (err)
        (if err
-           (error "org-bootstrap-publish-publish: build failed — %s" err)
-         (message "org-bootstrap-publish-publish: build done, deploying to %s ..." project)
-         (let ((buf (get-buffer-create "*obp-deploy*")))
-           (with-current-buffer buf (erase-buffer))
-           (make-process
-            :name "obp-deploy"
-            :buffer buf
-            :command (list wrangler
-                           "pages" "deploy" output-dir
-                           "--project-name" project
-                           "--commit-dirty=true"
-                           "--branch" branch)
-            :filter #'org-bootstrap-publish--async-filter
-            :sentinel #'org-bootstrap-publish--wrangler-sentinel)))))))
+           (with-current-buffer pub-buf
+             (goto-char (point-max))
+             (insert (format "\nBuild failed — %s\n" err)))
+         (with-current-buffer pub-buf
+           (goto-char (point-max))
+           (insert (format "\nDeploying to %s ...\n" project)))
+         (setq org-bootstrap-publish--deploy-process
+               (make-process
+                :name "obp-deploy"
+                :buffer pub-buf
+                :command (list wrangler
+                               "pages" "deploy" output-dir
+                               "--project-name" project
+                               "--commit-dirty=true"
+                               "--branch" branch)
+                :filter #'org-bootstrap-publish--publish-filter
+                :sentinel #'org-bootstrap-publish--wrangler-sentinel))))
+     pub-buf)))
+
+;;;###autoload
+(defun org-bootstrap-publish-publish-abort ()
+  "Abort the currently running publish (build or deploy) and stop any chain."
+  (interactive)
+  (setq org-bootstrap-publish--publish-aborted t)
+  (cond
+   ((process-live-p org-bootstrap-publish--deploy-process)
+    (delete-process org-bootstrap-publish--deploy-process)
+    (setq org-bootstrap-publish--deploy-process nil)
+    (message "org-bootstrap-publish-publish: deploy aborted"))
+   ((process-live-p org-bootstrap-publish--async-process)
+    (delete-process org-bootstrap-publish--async-process)
+    (setq org-bootstrap-publish--async-process nil)
+    (message "org-bootstrap-publish-publish: build aborted"))
+   (t
+    (let ((procs (seq-filter
+                  (lambda (p) (string-match-p "\\`obp-" (process-name p)))
+                  (process-list))))
+      (if procs
+          (dolist (p procs)
+            (delete-process p)
+            (message "org-bootstrap-publish-publish: killed %s" (process-name p)))
+        (message "org-bootstrap-publish-publish: nothing running"))))))
 
 (provide 'org-bootstrap-publish)
 
