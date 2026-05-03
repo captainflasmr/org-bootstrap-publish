@@ -790,7 +790,7 @@ string when neither knob is configured."
 overrides "\n"))
           (body-rule
            (and (stringp bg) (not (string-empty-p bg))
-                (let* ((bg-url (if (string-match-p "\\`\\(?:https?:\\|data:\\)" bg)
+                 (let* ((bg-url (if (string-match-p "\\`\\(?:https?:\\|/\\|data:\\)" bg)
                                    bg
                                  (org-bootstrap-publish--url bg)))
                       (extras
