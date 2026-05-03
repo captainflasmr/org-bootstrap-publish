@@ -12,7 +12,7 @@ A short guide for swapping a Hugo + ox-hugo site over to =org-bootstrap-publish=
 | Builder | =hugo= CLI                      | =emacs --batch= + this pkg       |
 | Theme   | =themes/hyde=                   | Bootstrap 5 + =assets/style.css= |
 | Output  | =public/=                       | =public/=                        |
-| Deploy  | GH Actions (=hugo.yml=)         | GH Actions or local push         |
+| Deploy  | GH Actions (=hugo.yml=)         | Local build + =wrangler pages deploy= |
 
 Importantly, =README.org= itself does not change.  The same drawer properties (=EXPORT_FILE_NAME=, =EXPORT_HUGO_LASTMOD=, the =:thumbnail= entry in =EXPORT_HUGO_CUSTOM_FRONT_MATTER+=) are read by both builders.
 
@@ -59,16 +59,36 @@ A few things to tidy up in =README.org= while you are previewing:
 - Image paths use =static/…=; the builder rewrites these to =${site-path}static/…= automatically.
 - Code-block languages should match highlight.js keys (=elisp=, =sh=, =bash=, =python=, etc.) for syntax colouring.
 
-* Deploy option A — GitHub Actions (recommended)
+* Deploy option A — Cloudflare Pages via wrangler (recommended)
 
-If you are already on GitHub Pages, the least-intrusive path is to replace =hugo.yml= with the packaged workflow.
+Build locally and deploy directly with the wrangler CLI.
+
+1. Install wrangler and log in:
+   #+begin_src sh
+   npm install -g wrangler
+   wrangler login
+   #+end_src
+2. Configure the publish target:
+   #+begin_src elisp
+   (setq org-bootstrap-publish-cloudflare-project "emacs-dyerdwelling"
+         org-bootstrap-publish-cloudflare-branch   "production")
+   #+end_src
+3. Publish:
+   #+begin_src elisp
+   M-x org-bootstrap-publish-publish
+   #+end_src
+   That builds into =public/= and runs =wrangler pages deploy= in one step.
+
+* Deploy option B — CI build + Cloudflare Pages
+
+If you prefer CI-side builds, use the packaged workflow template.
 
 1. Copy the template:
    #+begin_src sh
    cp ~/source/repos/org-bootstrap-publish/workflows/pages.yml \
       ~/publish/hugo-unified/.github/workflows/pages.yml
    #+end_src
-2. Edit =on.push.paths= so the workflow only fires for files that actually affect the new build.  For the emacs site:
+2. Edit =on.push.paths= so the workflow only fires for files that affect the build.  For the emacs site:
    #+begin_src yaml
    paths:
      - 'README.org'
@@ -76,46 +96,23 @@ If you are already on GitHub Pages, the least-intrusive path is to replace =hugo
      - 'assets/**'
      - '.github/workflows/pages.yml'
    #+end_src
-3. Disable the old workflow.  Either delete =hugo.yml= or rename it to =hugo.yml.disabled= so GitHub ignores it.
-4. Commit, push, and watch the Actions tab.  The =configure-pages= step supplies =base_url=; the workflow feeds that to =org-bootstrap-publish-site-url= so internal links resolve correctly whether the site lives at =example.github.io= or a custom domain.
-5. In the repo's *Settings → Pages*, make sure the source is set to *GitHub Actions* (not "Deploy from a branch").
-6. The custom domain (=emacs.dyerdwelling.family=) continues to work as long as the *Settings → Pages → Custom domain* value is still set.  No =CNAME= file is required — GitHub writes one into the artifact.
-
-* Deploy option B — local build + push
-
-If you would rather not run Emacs on CI, build locally and push the =public/= tree to a deploy branch.
-
-1. Clone a second worktree of the repo pinned to the deploy branch:
-   #+begin_src sh
-   git worktree add ../hugo-unified-deploy gh-pages
-   #+end_src
-2. Configure the publish target:
-   #+begin_src elisp
-   (setq org-bootstrap-publish-deploy-dir
-         "~/publish/hugo-unified-deploy"
-         org-bootstrap-publish-deploy-remote "origin"
-         org-bootstrap-publish-deploy-branch "gh-pages")
-   #+end_src
-3. Publish:
-   #+begin_src elisp
-   M-x org-bootstrap-publish-publish
-   #+end_src
-   That builds into =public/=, rsyncs into the worktree, commits, and pushes.  A =.nojekyll= file is written so GitHub does not strip underscore-prefixed paths.
-4. In *Settings → Pages*, set the source to *Deploy from a branch* and pick =gh-pages / (root)=.
+3. Set =CLOUDFLARE_API_TOKEN= and =CLOUDFLARE_ACCOUNT_ID= in the repo's *Settings → Secrets and variables → Actions*.
+4. Disable the old Hugo workflow.  Either delete =hugo.yml= or rename it to =hugo.yml.disabled= so GitHub ignores it.
+5. Commit, push, and watch the Actions tab.  The workflow builds with Emacs in batch mode and deploys to Cloudflare Pages via wrangler.
 
 * Cutover
 
-1. Stage the new build on a throwaway repo or subpath first if you want to compare side-by-side.
-2. When happy, push to =main= (option A) or =gh-pages= (option B).
-3. DNS / CNAME for =emacs.dyerdwelling.family= does not need to change — GitHub Pages keeps serving the same host, only the artefact behind it is different.
+1. Stage the new build on a throwaway Cloudflare Pages project first if you want to compare side-by-side.
+2. When happy, run =M-x org-bootstrap-publish-publish= (option A) or push to =main= (option B).
+3. Point the DNS / CNAME for =emacs.dyerdwelling.family= at Cloudflare Pages.
 4. After the first deploy, hard-refresh the browser (CSS filenames are the same so cached styles can linger).
 
 * Rollback
 
 The old Hugo workflow still works.  To revert:
 
-- Option A: restore =hugo.yml= (or rename =hugo.yml.disabled= back) and delete =pages.yml=.  Push.  Hugo takes over on the next push.
-- Option B: re-run =hugo --minify= locally and push the resulting =public/= to =gh-pages=, then flip *Settings → Pages* back if you changed it.
+- Option A: restore =hugo.yml=, deploy the Hugo-built =public/= to Cloudflare Pages manually, or switch DNS back to the previous host.
+- Option B: re-run =hugo --minify= locally and deploy the resulting =public/= via =wrangler pages deploy=.
 
 Because =README.org= is unchanged, no content migration is needed in either direction.
 

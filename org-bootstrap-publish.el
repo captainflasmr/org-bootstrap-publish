@@ -107,8 +107,8 @@ are not deployed."
 (defcustom org-bootstrap-publish-site-path "/"
   "URL path prefix under which the site is served.
 Use \"/\" for domain-root deployment (Cloudflare Pages, Netlify,
-custom domain on GitHub Pages).  Use \"/repo-name/\" for a GitHub
-Pages project site.  Must start and end with a slash."
+custom domain).  Use \"/repo-name/\" for subpath deployment.
+Must start and end with a slash."
   :type 'string)
 
 (defcustom org-bootstrap-publish-author (or user-full-name "Anonymous")
@@ -279,31 +279,26 @@ If \\='css, styling is added via CSS classes."
                  (const :tag "Inline CSS" inline-css)
                  (const :tag "External CSS" css)))
 
-(defcustom org-bootstrap-publish-deploy-dir nil
-  "Local git checkout that `org-bootstrap-publish-publish' builds into.
-This is just a regular clone of the repo that serves your site
-(usually the branch GitHub Pages is configured to deploy from).
-No `git worktree' or anything fancy required -- a plain
-`git clone' is fine."
-  :type '(choice (const :tag "Unset" nil) directory))
+(defcustom org-bootstrap-publish-cloudflare-project nil
+  "Cloudflare Pages project name passed to `wrangler pages deploy'.
+When set, `org-bootstrap-publish-publish' deploys the built site
+to Cloudflare Pages via the wrangler CLI instead of pushing to a
+git remote."
+  :type '(choice (const :tag "Unset" nil) string))
 
-(defcustom org-bootstrap-publish-deploy-remote "origin"
-  "Git remote used by `org-bootstrap-publish-publish'."
+(defcustom org-bootstrap-publish-cloudflare-branch "production"
+  "Cloudflare Pages branch passed to `wrangler pages deploy'.
+Defaults to \"production\" which maps to the production deployment."
+  :type 'string)
+
+(defcustom org-bootstrap-publish-wrangler-executable "wrangler"
+  "Path to the wrangler CLI used by `org-bootstrap-publish-publish'."
   :type 'string)
 
 (defcustom org-bootstrap-publish-date-format "%B %-d, %Y %H:%M"
   "Format string used for displaying the human-readable date and time.
 Defaults to showing the month, day, year, and time (e.g. `April 21, 2026 15:30`)."
   :type 'string)
-
-(defcustom org-bootstrap-publish-deploy-branch "main"
-  "Git branch used by `org-bootstrap-publish-publish'."
-  :type 'string)
-
-(defcustom org-bootstrap-publish-publish-preserve '("CNAME" ".nojekyll")
-  "Entries preserved in the deploy directory across publishes.
-`.git' is always preserved."
-  :type '(repeat string))
 
 (defcustom org-bootstrap-publish-asset-file
   (expand-file-name "assets/style.css"
@@ -2055,59 +2050,55 @@ Also aborts any running async build."
                      #'org-bootstrap-publish-rebuild-current-post t))))
   (message "org-bootstrap-publish: server stopped"))
 
-;;;; Git publish
+;;;; Cloudflare Pages deploy
 
-(defun org-bootstrap-publish--git (dir &rest args)
-  "Run git ARGS in DIR, return stdout; signal error on non-zero exit."
-  (with-temp-buffer
-    (let* ((default-directory (file-name-as-directory dir))
-           (exit (apply #'call-process "git" nil t nil args)))
-      (unless (zerop exit)
-        (error "git %s failed in %s:\n%s"
-               (mapconcat #'identity args " ") dir (buffer-string)))
-      (string-trim (buffer-string)))))
+(defun org-bootstrap-publish--wrangler-sentinel (proc _event)
+  "Sentinel for async wrangler deploy.
+Reports success or failure in the echo area and *obp-deploy* buffer."
+  (let ((buf (process-buffer proc))
+        (exit (process-exit-status proc)))
+    (if (zerop exit)
+        (message "org-bootstrap-publish-publish: deployed ✓")
+      (with-current-buffer buf
+        (message "org-bootstrap-publish-publish: deploy failed (exit %d)" exit)
+        (insert (format "\nwrangler exited with code %d\n" exit))))))
 
-(defun org-bootstrap-publish--clean-worktree (wt)
-  (let ((keep (cons ".git" org-bootstrap-publish-publish-preserve)))
-    (dolist (entry (directory-files wt t directory-files-no-dot-files-regexp))
-      (unless (member (file-name-nondirectory entry) keep)
-        (if (file-directory-p entry)
-            (delete-directory entry t)
-          (delete-file entry))))))
-
-;;;###autoload
+;;###autoload
 (defun org-bootstrap-publish-publish ()
-  "Build the site into `org-bootstrap-publish-deploy-dir' and push it.
-Removes stale files (preserving `.git' and
-`org-bootstrap-publish-publish-preserve'), runs
-`org-bootstrap-publish', commits with a timestamped message, and
-pushes to
-`org-bootstrap-publish-deploy-remote'/`-deploy-branch'.
+  "Build the site asynchronously, then deploy to Cloudflare Pages via wrangler.
+Runs `org-bootstrap-publish-async' to build, then spawns
+`wrangler pages deploy' as an async process so Emacs stays
+responsive throughout.
 
-If the deploy dir has no changes after the build, nothing is
-committed or pushed."
+Requires `org-bootstrap-publish-cloudflare-project' to be set
+and the wrangler CLI to be installed and authenticated.
+Output from wrangler is streamed to the *obp-deploy* buffer."
   (interactive)
-  (let ((dir org-bootstrap-publish-deploy-dir))
-    (unless dir
-      (user-error "Set `org-bootstrap-publish-deploy-dir' first"))
-    (unless (file-exists-p (expand-file-name ".git" dir))
-      (user-error "%s is not a git checkout (no .git)" dir))
-    (message "org-bootstrap-publish-publish: cleaning %s" dir)
-    (org-bootstrap-publish--clean-worktree dir)
-    (org-bootstrap-publish nil dir)
-    (org-bootstrap-publish--git dir "add" "-A")
-    (let ((status (org-bootstrap-publish--git dir "status" "--porcelain")))
-      (if (string-empty-p status)
-          (message "org-bootstrap-publish-publish: no changes to publish")
-        (let ((msg (format "Publish %s"
-                           (format-time-string "%Y-%m-%d %H:%M:%S"))))
-          (org-bootstrap-publish--git dir "commit" "-m" msg)
-          (org-bootstrap-publish--git dir "push"
-                                      org-bootstrap-publish-deploy-remote
-                                      org-bootstrap-publish-deploy-branch)
-          (message "org-bootstrap-publish-publish: pushed to %s/%s"
-                   org-bootstrap-publish-deploy-remote
-                   org-bootstrap-publish-deploy-branch))))))
+  (unless org-bootstrap-publish-cloudflare-project
+    (user-error "Set `org-bootstrap-publish-cloudflare-project' first"))
+  (let ((output-dir (expand-file-name org-bootstrap-publish-output-dir))
+        (project    org-bootstrap-publish-cloudflare-project)
+        (branch     org-bootstrap-publish-cloudflare-branch)
+        (wrangler   org-bootstrap-publish-wrangler-executable))
+    (message "org-bootstrap-publish-publish: async build → deploy to %s ..." project)
+    (org-bootstrap-publish-async
+     nil nil
+     (lambda (err)
+       (if err
+           (error "org-bootstrap-publish-publish: build failed — %s" err)
+         (message "org-bootstrap-publish-publish: build done, deploying to %s ..." project)
+         (let ((buf (get-buffer-create "*obp-deploy*")))
+           (with-current-buffer buf (erase-buffer))
+           (make-process
+            :name "obp-deploy"
+            :buffer buf
+            :command (list wrangler
+                           "pages" "deploy" output-dir
+                           "--project-name" project
+                           "--commit-dirty=true"
+                           "--branch" branch)
+            :filter #'org-bootstrap-publish--async-filter
+            :sentinel #'org-bootstrap-publish--wrangler-sentinel)))))))
 
 (provide 'org-bootstrap-publish)
 

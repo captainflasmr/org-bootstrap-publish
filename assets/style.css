@@ -185,6 +185,8 @@ body {
   color: var(--obp-body-fg);
   font-size: 0.95rem;
   line-height: 1.5;
+  overflow: hidden;
+  border-radius: 8px;
 }
 .post-card .card-body { padding: 0.65rem 0.8rem; }
 .post-card:hover {
@@ -214,7 +216,13 @@ body {
 }
 .post-card .post-summary p { margin-bottom: 0.3rem; }
 .post-card .post-summary :last-child { margin-bottom: 0; }
-.post-card .card-img-top { aspect-ratio: 16 / 9; object-fit: cover; }
+.post-card .card-img-top {
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-bottom: 1px solid var(--obp-sidebar-bg);
+  margin: -2px -2px 0 -2px;
+  width: calc(100% + 4px);
+}
 .post-card .post-tags { margin-top: 0.45rem !important; }
 .post-card .post-tags .badge { }
 

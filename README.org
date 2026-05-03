@@ -2,7 +2,7 @@
 #+author: James Dyer
 #+options: toc:2
 
-Generate a Bootstrap 5 static site from one or more Org files.  Each top-level heading becomes a post.  The build writes a =public/= folder you can drop on Cloudflare Pages, Netlify, GitHub Pages, plain S3, or any static host.
+Generate a Bootstrap 5 static site from one or more Org files.  Each top-level heading becomes a post.  The build writes a =public/= folder you can drop on Cloudflare Pages, Netlify, or any static host.
 
 This README is a tutorial that walks from a five-minute first site through every layer of customisation the package supports.  Reference tables for every variable and post property live at the end.
 
@@ -284,7 +284,7 @@ Caveat: handlers must be =fboundp= in whichever process renders the build.  The 
 
 * Multiple sites from one Emacs
 
-The recommended pattern is an alist of profiles plus a small selector, kept in a separate file so both interactive Emacs and a batch build script (=bin/web=, GitHub Actions, etc.) can load it.
+The recommended pattern is an alist of profiles plus a small selector, kept in a separate file so both interactive Emacs and a batch build script (=bin/web=, CI, etc.) can load it.
 
 ** The profile alist
 
@@ -373,8 +373,8 @@ If you have transient (built into Emacs 28+):
    ("u" "switch site"  my/obp-use-site)
    ("B" "build async"  org-bootstrap-publish-async)
    ("X" "abort async"  org-bootstrap-publish-async-abort)]
-  ["Deploy"
-   ("P" "publish (git push)" org-bootstrap-publish-publish)])
+   ["Deploy"
+    ("P" "publish (Cloudflare)" org-bootstrap-publish-publish)])
 
 (global-set-key (kbd "C-c w") #'my/obp-menu)
 #+end_src
@@ -436,21 +436,15 @@ The save-hook rebuild runs synchronously in "fast mode" — it skips per-tag HTM
 
 * Deploy
 
-| Cloudflare Pages | =wrangler pages deploy public --project-name=<name>=                        |
-| Netlify          | drag-drop =public/=, or =netlify deploy --prod --dir public=                |
-| GitHub Pages     | see =workflows/pages.yml= for a CI build, or commit =public/= on =gh-pages= |
-| Local push       | =M-x org-bootstrap-publish-publish= rsyncs into =-deploy-dir=, commits, pushes |
+| Cloudflare Pages | =wrangler pages deploy public --project-name=<name> --commit-dirty=true --branch=production= |
+| Netlify          | drag-drop =public/=, or =netlify deploy --prod --dir public=                                     |
 
-For =org-bootstrap-publish-publish= specifically:
+=M-x org-bootstrap-publish-publish= builds locally and deploys to Cloudflare Pages via the wrangler CLI.  Set the project name first:
 
 #+begin_src elisp
-(setq org-bootstrap-publish-deploy-dir    "~/source/repos/site-deploy"
-      org-bootstrap-publish-deploy-remote "origin"
-      org-bootstrap-publish-deploy-branch "main"
-      org-bootstrap-publish-publish-preserve '("CNAME" ".nojekyll"))
+(setq org-bootstrap-publish-cloudflare-project "emacs-dyerdwelling"
+      org-bootstrap-publish-cloudflare-branch   "production")
 #+end_src
-
-A =.nojekyll= is written into the deploy dir so GitHub Pages serves underscore-prefixed paths.
 
 * Reference: customisation variables
 
@@ -480,9 +474,9 @@ A =.nojekyll= is written into the deploy dir so GitHub Pages serves underscore-p
 | =org-bootstrap-publish-bootstrap-css= / =-js=  | Bootstrap 5 URLs.  Override to vendor.                        |
 | =org-bootstrap-publish-highlight-css= / =-js=  | highlight.js URLs.  =nil= disables.                           |
 | =org-bootstrap-publish-asset-file=             | Path to the stylesheet copied as =assets/style.css=.          |
-| =org-bootstrap-publish-deploy-dir=             | Local clone the publish command rsyncs into.                  |
-| =org-bootstrap-publish-deploy-remote= / =-branch= | Git remote/branch for the publish command.                 |
-| =org-bootstrap-publish-publish-preserve=       | Files preserved in the deploy dir across publishes.           |
+| =org-bootstrap-publish-cloudflare-project=     | Cloudflare Pages project name for the publish command.         |
+| =org-bootstrap-publish-cloudflare-branch=      | Cloudflare Pages branch (default: =production=).              |
+| =org-bootstrap-publish-wrangler-executable=    | Path to the wrangler CLI (default: =wrangler=).               |
 | =org-bootstrap-publish-publish-todo-states=    | Org TODO states a post must be in to publish.  Default: =DONE=. |
 | =org-bootstrap-publish-serve-port=             | Port for =org-bootstrap-publish-serve=.  Default: 8080.       |
 
@@ -510,4 +504,4 @@ Heading tags become tag pages.  Headings tagged =noexport= (or whatever's in =-e
 | =M-x org-bootstrap-publish-rebuild-current-post= | Fast incremental rebuild of the post in the current buffer. |
 | =M-x org-bootstrap-publish-serve=        | Async build, dev server, browser, save-hook rebuilds.       |
 | =M-x org-bootstrap-publish-stop=         | Stop the dev server, abort async, remove save hooks.        |
-| =M-x org-bootstrap-publish-publish=      | Build, rsync into =-deploy-dir=, commit, push.              |
+| =M-x org-bootstrap-publish-publish=      | Build locally, deploy to Cloudflare Pages via wrangler.     |
