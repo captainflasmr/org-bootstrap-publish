@@ -792,29 +792,29 @@ string when neither knob is configured."
              (let* ((raw (format "%s" (car pair)))
                     (name (if (string-prefix-p "--" raw) raw (concat "--" raw))))
                (format "  %s: %s;" name (cdr pair))))
-           overrides "\n"))
-         (body-rule
-          (and (stringp bg) (not (string-empty-p bg))
-               (let* ((bg-url (if (string-match-p "\\`\\(?:https?:\\|/\\|data:\\)" bg)
-                                  bg
-                                (org-bootstrap-publish--url bg)))
+overrides "\n"))
+          (body-rule
+           (and (stringp bg) (not (string-empty-p bg))
+                (let* ((bg-url (if (string-match-p "\\`\\(?:https?:\\|data:\\)" bg)
+                                   bg
+                                 (org-bootstrap-publish--url bg)))
                       (extras
                        (concat
                         (when (and (numberp blur) (> blur 0))
                           (format "  filter: blur(%dpx);\n  transform: scale(1.05);\n" blur))
                         (when (numberp opacity)
                           (format "  opacity: %s;\n" opacity)))))
-                 (concat
-                  "body {\n  background: var(--obp-sidebar-bg);\n}\n"
-                  (format "body::before {\n  content: \"\";\n  position: fixed;\n  inset: 0;\n  background-image: url(%S);\n  background-size: cover;\n  background-position: center;\n%s  z-index: -1;\n}\n"
-                          bg-url extras)
-                   ".content-inner {\n  background: color-mix(in srgb, var(--obp-body-bg) 85%, var(--obp-sidebar-bg));\n  border: 3px solid var(--obp-sidebar-bg);\n  padding: 2rem 2.5rem;\n  border-radius: 6px;\n}\n"
-                    ".content-inner-listing {\n  background: color-mix(in srgb, var(--obp-sidebar-bg) 50%, transparent) !important;\n  backdrop-filter: blur(8px);\n  color: var(--obp-sidebar-fg);\n  border-radius: 12px;\n}\n"
-                   ".content-inner-listing .page-header h2 { color: var(--obp-sidebar-fg); }\n"
-                   ".content-inner-listing .text-muted { color: var(--obp-sidebar-muted) !important; }\n"
-                   ".content-inner-listing .post-list a { color: var(--obp-sidebar-fg); }\n"
-                   ".content-inner-listing .post-list a:hover { color: var(--obp-accent); }\n"
-                   ".content-inner-listing h3 { color: var(--obp-sidebar-fg); }\n")))))
+                  (concat
+                   "body {\n  background: var(--obp-sidebar-bg);\n}\n"
+                   (format "body::before {\n  content: \"\";\n  position: fixed;\n  inset: 0;\n  background-image: url(%S);\n  background-size: cover;\n  background-position: center;\n%s  z-index: -1;\n}\n"
+                           bg-url extras)
+                    ".content-inner {\n  background: color-mix(in srgb, var(--obp-body-bg) 85%, var(--obp-sidebar-bg));\n  border: 3px solid var(--obp-sidebar-bg);\n  padding: 2rem 2.5rem;\n  border-radius: 6px;\n}\n"
+                     ".content-inner-listing {\n  background: color-mix(in srgb, var(--obp-sidebar-bg) 50%, transparent) !important;\n  backdrop-filter: blur(8px);\n  color: var(--obp-sidebar-fg);\n  border-radius: 12px;\n}\n"
+                    ".content-inner-listing .page-header h2 { color: var(--obp-sidebar-fg); }\n"
+                    ".content-inner-listing .text-muted { color: var(--obp-sidebar-muted) !important; }\n"
+                    ".content-inner-listing .post-list a { color: var(--obp-sidebar-fg); }\n"
+                    ".content-inner-listing .post-list a:hover { color: var(--obp-accent); }\n"
+                    ".content-inner-listing h3 { color: var(--obp-sidebar-fg); }\n")))))
     (if (and (string-empty-p decls) (not body-rule)) ""
       (concat
        "<style>\n"
