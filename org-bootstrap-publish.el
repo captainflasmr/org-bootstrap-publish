@@ -2169,6 +2169,233 @@ Output is streamed to the *obp-publish* buffer."
             (message "org-bootstrap-publish-publish: killed %s" (process-name p)))
         (message "org-bootstrap-publish-publish: nothing running"))))))
 
+;;;; Site profiles
+
+(defun org-bootstrap-publish--managed-vars ()
+  "Return list of all `org-bootstrap-publish-' defcustom symbols.
+Auto-derived at runtime so adding a new defcustom to the package
+automatically opts it into the profile-switching system."
+  (let (vars)
+    (mapatoms
+     (lambda (sym)
+       (when (and (custom-variable-p sym)
+                  (string-prefix-p "org-bootstrap-publish-" (symbol-name sym))
+                  (not (string-match-p "--" (symbol-name sym))))
+         (push sym vars))))
+    (nreverse vars)))
+
+(defun org-bootstrap-publish-use-site (name-or-profile)
+  "Reset every obp defcustom to its default, then apply a site profile.
+NAME-OR-PROFILE is either a symbol (looked up in
+`org-bootstrap-publish-sites') or an alist of (SYMBOL . VALUE) pairs.
+Any symbol not in the profile keeps the package default."
+  (interactive
+   (list (intern (completing-read "Site: " org-bootstrap-publish-sites nil t))))
+  (let ((profile (if (listp name-or-profile)
+                     name-or-profile
+                   (cdr (assq name-or-profile org-bootstrap-publish-sites)))))
+    (unless profile (user-error "No such site: %s" name-or-profile))
+    (dolist (sym (org-bootstrap-publish--managed-vars))
+      (when-let ((std (get sym 'standard-value)))
+        (set sym (eval (car std)))))
+    (dolist (pair profile)
+      (set (car pair) (cdr pair)))
+    (message "obp: switched to %s"
+             (or (alist-get 'org-bootstrap-publish-cloudflare-project profile)
+                 (alist-get 'org-bootstrap-publish-site-title profile)
+                 "profile"))))
+
+(defvar org-bootstrap-publish-sites nil
+  "Alist of (NAME . PROFILE) for `org-bootstrap-publish-use-site'.
+Each NAME is a symbol; each PROFILE is an alist of
+\(SYMBOL . VALUE) pairs — the same shape accepted by
+`org-bootstrap-publish-use-site'.  Consumers populate this
+variable with their site definitions; the package itself leaves it
+nil.")
+
+;;;###autoload
+(defun org-bootstrap-publish-serve-site (name)
+  "Stop any running obp server, switch to site NAME, then serve it.
+NAME is looked up in `org-bootstrap-publish-sites'."
+  (interactive
+   (list (intern (completing-read "Serve site: " org-bootstrap-publish-sites nil t))))
+  (let ((profile (cdr (assq name org-bootstrap-publish-sites))))
+    (unless profile (user-error "No such site: %s" name))
+    (org-bootstrap-publish-stop)
+    (org-bootstrap-publish-use-site profile)
+    (org-bootstrap-publish-serve)))
+
+;;;###autoload
+(defun org-bootstrap-publish-publish-all ()
+  "Build and publish all sites in `org-bootstrap-publish-sites' sequentially.
+Sites without a `org-bootstrap-publish-cloudflare-project' entry
+are skipped.  Output streams to the *obp-publish* buffer."
+  (interactive)
+  (setq org-bootstrap-publish--publish-aborted nil)
+  (let ((remaining (mapcar #'car org-bootstrap-publish-sites))
+        (failed 0)
+        (pub-buf (get-buffer-create org-bootstrap-publish--publish-buffer-name)))
+    (with-current-buffer pub-buf
+      (erase-buffer)
+      (insert "Publish all\n\n")
+      (display-buffer pub-buf))
+    (cl-labels
+        ((deploy-next (dir proj br)
+           (with-current-buffer pub-buf
+             (goto-char (point-max))
+             (insert (format "\nDeploying %s ...\n" proj)))
+           (setq org-bootstrap-publish--deploy-process
+                 (make-process
+                  :name (format "obp-deploy-%s" proj)
+                  :buffer pub-buf
+                  :command (list org-bootstrap-publish-wrangler-executable
+                                "pages" "deploy" dir
+                                "--project-name" proj
+                                "--commit-dirty=true"
+                                "--branch" br)
+                  :filter #'org-bootstrap-publish--publish-filter
+                  :sentinel
+                  (lambda (proc _event)
+                    (when (memq (process-status proc) '(exit signal))
+                      (setq org-bootstrap-publish--deploy-process nil)
+                      (with-current-buffer pub-buf
+                        (goto-char (point-max))
+                        (if (zerop (process-exit-status proc))
+                            (insert (format "✔ %s deployed\n" proj))
+                          (setq failed (1+ failed))
+                          (insert (format "✘ %s failed (exit %d)\n"
+                                          proj (process-exit-status proc)))))
+                      (if org-bootstrap-publish--publish-aborted
+                          (with-current-buffer pub-buf
+                            (goto-char (point-max))
+                            (insert "\n⚠ Publish all aborted\n")
+                            (message "obp: publish all aborted"))
+                        (publish-next)))))))
+         (publish-next ()
+           (cond
+            (org-bootstrap-publish--publish-aborted
+             (with-current-buffer pub-buf
+               (goto-char (point-max))
+               (insert "\n⚠ Publish all aborted\n")
+               (message "obp: publish all aborted")))
+            ((not remaining)
+             (with-current-buffer pub-buf
+               (goto-char (point-max))
+               (insert (format "\nPublish all done%s\n"
+                               (if (> failed 0)
+                                   (format " — %d failed" failed)
+                                 "")))
+               (message "obp: publish all done")))
+            (t
+             (let* ((name (car remaining))
+                    (profile (cdr (assq name org-bootstrap-publish-sites))))
+               (setq remaining (cdr remaining))
+               (if (not (alist-get 'org-bootstrap-publish-cloudflare-project profile))
+                   (progn
+                     (with-current-buffer pub-buf
+                       (goto-char (point-max))
+                       (insert (format "Skipping %s (no cloudflare project)\n" name)))
+                     (publish-next))
+                 (org-bootstrap-publish-use-site profile)
+                 (with-current-buffer pub-buf
+                   (goto-char (point-max))
+                   (insert (format "\n--- %s ---\n" name)))
+                 (org-bootstrap-publish-async
+                  nil nil
+                  (lambda (err)
+                    (if org-bootstrap-publish--publish-aborted
+                        (with-current-buffer pub-buf
+                          (goto-char (point-max))
+                          (insert "\n⚠ Publish all aborted\n")
+                          (message "obp: publish all aborted"))
+                      (if err
+                          (progn
+                            (setq failed (1+ failed))
+                            (with-current-buffer pub-buf
+                              (goto-char (point-max))
+                              (insert (format "Build failed — %s\n" err)))
+                            (publish-next))
+                        (deploy-next
+                         (expand-file-name org-bootstrap-publish-output-dir)
+                         org-bootstrap-publish-cloudflare-project
+                         org-bootstrap-publish-cloudflare-branch))))
+                  pub-buf)))))))
+      (publish-next))))
+
+;;;###autoload
+(defun org-bootstrap-publish-clean-site (name)
+  "Deploy a placeholder page to wipe the Cloudflare site for NAME.
+NAME is looked up in `org-bootstrap-publish-sites'."
+  (interactive
+   (list (intern (completing-read "Clean site: " org-bootstrap-publish-sites nil t))))
+  (let* ((profile (cdr (assq name org-bootstrap-publish-sites)))
+         (project (alist-get 'org-bootstrap-publish-cloudflare-project profile))
+         (branch (or (alist-get 'org-bootstrap-publish-cloudflare-branch profile) "production"))
+         (dir (make-temp-file "obp-clean-" t))
+         (pub-buf (get-buffer-create org-bootstrap-publish--publish-buffer-name)))
+    (unless project (user-error "No cloudflare project for site %s" name))
+    (write-region "<!DOCTYPE html><html><body>Site cleaned — redeploy pending</body></html>"
+                  nil (expand-file-name "index.html" dir))
+    (with-current-buffer pub-buf
+      (erase-buffer)
+      (insert (format "Clean → %s\n\nDeploying placeholder ...\n" project))
+      (display-buffer pub-buf))
+    (make-process
+     :name (format "obp-clean-%s" project)
+     :buffer pub-buf
+     :command (list org-bootstrap-publish-wrangler-executable
+                    "pages" "deploy" dir
+                    "--project-name" project
+                    "--commit-dirty=true"
+                    "--branch" branch)
+     :filter #'org-bootstrap-publish--publish-filter
+     :sentinel (lambda (proc _event)
+                 (when (memq (process-status proc) '(exit signal))
+                   (with-current-buffer pub-buf
+                     (goto-char (point-max))
+                     (if (zerop (process-exit-status proc))
+                         (insert "\n✔ cleaned\n")
+                       (insert (format "\n✘ clean failed (exit %d)\n"
+                                       (process-exit-status proc))))))))))
+
+;;;###autoload
+(defun org-bootstrap-publish-flush-site (name)
+  "Purge the Cloudflare cache for site NAME.
+NAME is looked up in `org-bootstrap-publish-sites'.  Requires
+CLOUDFLARE_API_TOKEN and CLOUDFLARE_ZONE_<NAME> (uppercased) set
+in the environment."
+  (interactive
+   (list (intern (completing-read "Flush site: " org-bootstrap-publish-sites nil t))))
+  (let* ((profile (cdr (assq name org-bootstrap-publish-sites)))
+         (project (alist-get 'org-bootstrap-publish-cloudflare-project profile))
+         (zone-var (intern (format "CLOUDFLARE_ZONE_%s" (upcase (symbol-name name)))))
+         (pub-buf (get-buffer-create org-bootstrap-publish--publish-buffer-name)))
+    (unless project (user-error "No cloudflare project for site %s" name))
+    (let ((zone-id (getenv (symbol-name zone-var)))
+          (api-token (getenv "CLOUDFLARE_API_TOKEN")))
+      (unless zone-id (user-error "%s not set" (symbol-name zone-var)))
+      (unless api-token (user-error "CLOUDFLARE_API_TOKEN not set"))
+      (with-current-buffer pub-buf
+        (erase-buffer)
+        (insert (format "Flush → %s\n\nPurging cache ...\n" project))
+        (display-buffer pub-buf))
+      (make-process
+       :name (format "obp-flush-%s" project)
+       :buffer pub-buf
+       :command (list "curl" "-s" "-X" "POST"
+                      (format "https://api.cloudflare.com/client/v4/zones/%s/purge_cache" zone-id)
+                      "-H" (format "Authorization: Bearer %s" api-token)
+                      "-H" "Content-Type: application/json"
+                      "--data" "{\"purge_everything\":true}")
+       :sentinel (lambda (proc _event)
+                   (when (memq (process-status proc) '(exit signal))
+                     (with-current-buffer pub-buf
+                       (goto-char (point-max))
+                       (if (zerop (process-exit-status proc))
+                           (insert "\n✔ cache flushed\n")
+                         (insert (format "\n✘ flush failed (exit %d)\n"
+                                         (process-exit-status proc)))))))))))
+
 (provide 'org-bootstrap-publish)
 
 ;;; org-bootstrap-publish.el ends here
