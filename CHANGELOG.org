@@ -12,6 +12,14 @@ All notable changes to this package.
 - =M-x org-bootstrap-publish-serve-preview=: like =serve= but builds only the =preview-limit= most-recent posts before starting the dev server and rebuild-on-save hook.  Defaults =preview-limit= to 10 when unset.
 - =M-x org-bootstrap-publish-serve-site-preview=: switch to a named site profile then preview-serve it.
 - Preview-aware save-hook: when =preview-limit= is active, =rebuild-current-post= only parses the current source file and truncates the post list, making incremental rebuilds much faster for multi-source sites.
+- =org-bootstrap-publish-serve-browser= defcustom: open the preview URL in a specific browser instead of the default (=browse-url=).
+- =org-bootstrap-publish-extra-load-path= defcustom: extra directories added to =load-path= in async/batch builds.  Defaults to auto-detecting the =htmlize= package directory.
+- =org-bootstrap-publish-async-init-files= defcustom: Elisp files loaded by the async child before building, so custom shortcode handlers are available without loading user init.
+
+** Fixed
+
+- Syntax highlighting (via =htmlize=) now works in async/batch builds: the child Emacs automatically gets =htmlize='s directory on its =load-path=.
+- Custom shortcodes (e.g. =horseprediction=, =crossword=, =foldergallery=) now resolve correctly in async builds when =async-init-files= is set.
 
 * 0.1.0 (2026-05-03)
 

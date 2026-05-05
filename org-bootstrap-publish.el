@@ -621,7 +621,7 @@ entries in `org-bootstrap-publish-shortcodes' share the dispatch."
            body t t)))
   body)
 
-(defconst org-bootstrap-publish--cache-version 10
+(defconst org-bootstrap-publish--cache-version 12
   "Bump to invalidate every cached `--org->html' result.
 Increment when the renderer's output changes for the same input
 (e.g. shortcode rewriter, bootstrapifier, or ox-html settings).")
@@ -1824,7 +1824,10 @@ fast local iteration.  Full publishes always pass nil for PREVIEW."
     org-bootstrap-publish-background-image
     org-bootstrap-publish-background-blur
     org-bootstrap-publish-background-opacity
-    org-bootstrap-publish-preview-limit)
+    org-bootstrap-publish-htmlize-output-type
+    org-bootstrap-publish-shortcodes
+    org-bootstrap-publish-preview-limit
+    org-bootstrap-publish-async-init-files)
   "Customisation vars propagated to the async build subprocess.")
 
 (defun org-bootstrap-publish--library-dir ()
@@ -1843,13 +1846,27 @@ forwarded for single-source builds so the child uses the same file
 the parent intended.  PREVIEW is forwarded as the third arg to
 `org-bootstrap-publish' so the child honours
 `org-bootstrap-publish-preview-limit'."
-  (let ((forwarded (if org-bootstrap-publish-source-files nil src)))
-    (format "(progn %s (org-bootstrap-publish %S %S %s))"
+  (let ((forwarded (if org-bootstrap-publish-source-files nil src))
+        (init-loads (and org-bootstrap-publish-async-init-files
+                         (mapconcat
+                          (lambda (f) (format "(load %S)" f))
+                          org-bootstrap-publish-async-init-files " "))))
+    (format "(progn %s %s (org-bootstrap-publish %S %S %s))"
             (mapconcat (lambda (v)
                          (format "(setq %s '%S)" v (symbol-value v)))
                        org-bootstrap-publish--async-vars
                        " ")
+            (or init-loads "")
             forwarded out (if preview t nil))))
+
+(defun org-bootstrap-publish--extra-load-dirs ()
+  "Return list of extra load-path directories for async builds.
+Uses `org-bootstrap-publish-extra-load-path' if set; otherwise
+auto-detects the directory containing `htmlize'."
+  (or org-bootstrap-publish-extra-load-path
+      (let ((dir (and (featurep 'htmlize)
+                      (locate-library "htmlize"))))
+        (when dir (list (file-name-directory dir))))))
 
 (defun org-bootstrap-publish--async-filter (proc string)
   "Append STRING to PROC's buffer and surface progress lines."
@@ -1899,29 +1916,35 @@ posts for faster local iteration."
          (out (or output-dir
                   org-bootstrap-publish-output-dir
                   (user-error "Set `org-bootstrap-publish-output-dir' first")))
-         (pkg-dir (org-bootstrap-publish--library-dir))
-         (buf (get-buffer-create (or buffer org-bootstrap-publish--async-buffer-name)))
-         (emacs (expand-file-name invocation-name invocation-directory))
-         (eval-form (org-bootstrap-publish--async-eval-form
-                     (expand-file-name src)
-                     (expand-file-name out)
-                     preview)))
-    (with-current-buffer buf
-      (erase-buffer)
-      (insert (format "$ %s --batch -Q -L %s -l org-bootstrap-publish \\\n  --eval %s\n\n"
-                      emacs pkg-dir eval-form)))
+          (pkg-dir (org-bootstrap-publish--library-dir))
+          (extra-dirs (org-bootstrap-publish--extra-load-dirs))
+          (buf (get-buffer-create (or buffer org-bootstrap-publish--async-buffer-name)))
+          (emacs (expand-file-name invocation-name invocation-directory))
+          (eval-form (org-bootstrap-publish--async-eval-form
+                      (expand-file-name src)
+                      (expand-file-name out)
+                      preview)))
+     (with-current-buffer buf
+       (erase-buffer)
+       (insert (format "$ %s --batch -Q %s -l org-bootstrap-publish \\\n  --eval %s\n\n"
+                       emacs
+                       (mapconcat (lambda (d) (format "-L %s" d))
+                                  (cons pkg-dir extra-dirs) " ")
+                       eval-form)))
     (message "org-bootstrap-publish: starting %sbuild..."
              (if preview "preview " ""))
     (let* ((use-publish-buffer (and buffer
                                     (not (equal buffer org-bootstrap-publish--async-buffer-name))))
+           (cmd (append (list emacs "--batch" "-Q")
+                        (cl-mapcan (lambda (d) (list "-L" d))
+                                   (cons pkg-dir extra-dirs))
+                        (list "-l" "org-bootstrap-publish"
+                              "--eval" eval-form)))
            (proc
             (make-process
              :name "obp-build"
              :buffer buf
-             :command (list emacs "--batch" "-Q"
-                            "-L" pkg-dir
-                            "-l" "org-bootstrap-publish"
-                            "--eval" eval-form)
+             :command cmd
              :filter (if use-publish-buffer
                          #'org-bootstrap-publish--publish-filter
                        #'org-bootstrap-publish--async-filter)
@@ -1946,6 +1969,34 @@ posts for faster local iteration."
 (defcustom org-bootstrap-publish-serve-port 8080
   "Port for `org-bootstrap-publish-serve'."
   :type 'integer)
+
+(defcustom org-bootstrap-publish-serve-browser nil
+  "Browser command for `org-bootstrap-publish-serve' and `serve-preview'.
+When non-nil, used as the first argument to `start-process' to
+open the preview URL.  Examples: \"firefox\", \"google-chrome\",
+\"chromium\".  When nil, `browse-url' is used (which obeys
+`browse-url-browser-function')."
+  :type '(choice (const :tag "Default (browse-url)" nil)
+                 (string :tag "Browser command")))
+
+(defcustom org-bootstrap-publish-extra-load-path nil
+  "Extra directories to add to `load-path' in async/batch builds.
+The async child runs with `emacs --batch -Q', so packages installed
+in your user directory (e.g. `htmlize') are not on the path.  Add
+their directories here so the child can load them.  When nil, the
+package tries to locate `htmlize' automatically from the parent
+Emacs session."
+  :type '(choice (const :tag "Auto-detect" nil)
+                 (repeat directory)))
+
+(defcustom org-bootstrap-publish-async-init-files nil
+  "Extra Elisp files to load in async/batch builds.
+The async child runs with `emacs --batch -Q' and does not load
+user init, so custom shortcode handlers defined outside this package
+are unavailable.  List the files containing those handlers here
+\(e.g. `\"~/.emacs.d/obp-shortcodes.el\"').  Each file is loaded
+with `load' after the package and custom values are set up."
+  :type '(repeat file))
 
 (defvar org-bootstrap-publish--server-process nil
   "Running HTTP server process, or nil.")
@@ -2072,7 +2123,10 @@ pick up the hook.  When PREVIEW is non-nil, only the
              (with-current-buffer buf
                (add-hook 'after-save-hook
                          #'org-bootstrap-publish-rebuild-current-post nil t))))
-         (browse-url (format "http://localhost:%d/" port))
+          (if org-bootstrap-publish-serve-browser
+              (start-process "obp-browse" nil org-bootstrap-publish-serve-browser
+                             (format "http://localhost:%d/" port))
+            (browse-url (format "http://localhost:%d/" port)))
          (message "org-bootstrap-publish-serve: serving %s on :%d%s; rebuild hook on %d source file%s (stop with M-x org-bootstrap-publish-stop)"
                   out port (if preview " (preview)" "")
                   (length files) (if (= 1 (length files)) "" "s"))))
