@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026 James Dyer
 
 ;; Author: James Dyer <captainflasmr@gmail.com>
-;; Version: 0.1.0
+;; Version: 0.2.0
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: org, html, hypermedia
 ;; URL: https://github.com/captainflasmr/org-bootstrap-publish
@@ -118,6 +118,14 @@ Must start and end with a slash."
 (defcustom org-bootstrap-publish-posts-per-page 24
   "Maximum number of posts on the index page."
   :type 'integer)
+
+(defcustom org-bootstrap-publish-preview-limit nil
+  "When non-nil, only the N most-recent posts are written during a preview serve.
+Full builds (`org-bootstrap-publish-publish') always ignore this;
+only `org-bootstrap-publish-serve-preview' and the synchronous
+preview path honour it.  Useful for fast local iteration when you
+only need to see the latest posts."
+  :type '(choice (const :tag "No limit" nil) (integer :tag "Number of posts")))
 
 (defcustom org-bootstrap-publish-exclude-tags '("noexport")
   "Headings carrying any of these tags are skipped."
@@ -1717,12 +1725,16 @@ No-op when interactive or when a display is available."
           (set-face-attribute face nil :foreground val))))))
 
 ;;;###autoload
-(defun org-bootstrap-publish (&optional source-file output-dir)
+(defun org-bootstrap-publish (&optional source-file output-dir preview)
   "Publish SOURCE-FILE to OUTPUT-DIR.
 With no arguments, parse every file in
 `org-bootstrap-publish-source-files' if set, otherwise the
 singleton `org-bootstrap-publish-source-file' (or the current org
-buffer).  Output goes to `org-bootstrap-publish-output-dir'."
+buffer).  Output goes to `org-bootstrap-publish-output-dir'.
+When PREVIEW is non-nil, truncate the post list to
+`org-bootstrap-publish-preview-limit' most-recent posts before
+writing; this is used by `org-bootstrap-publish-serve-preview' for
+fast local iteration.  Full publishes always pass nil for PREVIEW."
   (interactive)
   (org-bootstrap-publish--ensure-batch-faces)
   (let* ((files (cond
@@ -1743,10 +1755,18 @@ buffer).  Output goes to `org-bootstrap-publish-output-dir'."
          (org-bootstrap-publish--cache-misses 0)
          (org-bootstrap-publish--card-memo (make-hash-table :test 'eq))
          (org-bootstrap-publish--feed-entry-memo (make-hash-table :test 'eq))
-         (posts (org-bootstrap-publish--parse-all files))
+         (all-posts (org-bootstrap-publish--parse-all files))
+         (limit (and preview
+                     (natnump org-bootstrap-publish-preview-limit)
+                     org-bootstrap-publish-preview-limit))
+         (posts (if limit
+                   (let ((n (min limit (length all-posts))))
+                     (message "org-bootstrap-publish: preview — using %d of %d posts" n (length all-posts))
+                     (cl-subseq all-posts 0 n))
+                 all-posts))
          (tag-counts (org-bootstrap-publish--collect-tags posts)))
     (message "org-bootstrap-publish: parsed %d posts from %d source%s"
-             (length posts) (length files)
+             (length all-posts) (length files)
              (if (= 1 (length files)) "" "s"))
     (let ((i 0) (total (length posts))
           (newer nil) (cur posts))
@@ -1803,7 +1823,8 @@ buffer).  Output goes to `org-bootstrap-publish-output-dir'."
     org-bootstrap-publish-theme-overrides
     org-bootstrap-publish-background-image
     org-bootstrap-publish-background-blur
-    org-bootstrap-publish-background-opacity)
+    org-bootstrap-publish-background-opacity
+    org-bootstrap-publish-preview-limit)
   "Customisation vars propagated to the async build subprocess.")
 
 (defun org-bootstrap-publish--library-dir ()
@@ -1813,20 +1834,22 @@ buffer).  Output goes to `org-bootstrap-publish-output-dir'."
        (locate-library "org-bootstrap-publish")
        (user-error "Cannot locate org-bootstrap-publish on load-path"))))
 
-(defun org-bootstrap-publish--async-eval-form (src out)
+(defun org-bootstrap-publish--async-eval-form (src out &optional preview)
   "Build the `--eval' string run inside the child Emacs.
 Replays every custom in `org-bootstrap-publish--async-vars' then
 invokes the synchronous entry point.  When the parent has a
 multi-source list configured, that takes precedence; SRC is only
 forwarded for single-source builds so the child uses the same file
-the parent intended."
+the parent intended.  PREVIEW is forwarded as the third arg to
+`org-bootstrap-publish' so the child honours
+`org-bootstrap-publish-preview-limit'."
   (let ((forwarded (if org-bootstrap-publish-source-files nil src)))
-    (format "(progn %s (org-bootstrap-publish %S %S))"
+    (format "(progn %s (org-bootstrap-publish %S %S %s))"
             (mapconcat (lambda (v)
                          (format "(setq %s '%S)" v (symbol-value v)))
                        org-bootstrap-publish--async-vars
                        " ")
-            forwarded out)))
+            forwarded out (if preview t nil))))
 
 (defun org-bootstrap-publish--async-filter (proc string)
   "Append STRING to PROC's buffer and surface progress lines."
@@ -1856,13 +1879,16 @@ the parent intended."
         (when callback (funcall callback (format "exit %d" rc))))))))
 
 ;;;###autoload
-(defun org-bootstrap-publish-async (&optional source-file output-dir callback buffer)
+(defun org-bootstrap-publish-async (&optional source-file output-dir callback buffer preview)
   "Build the site asynchronously in a child `emacs --batch' subprocess.
 SOURCE-FILE and OUTPUT-DIR default to the configured customs.
 CALLBACK, if non-nil, is called on completion with nil on success
 or an error string on failure.  BUFFER defaults to
 `org-bootstrap-publish--async-buffer-name'.  Progress is streamed to
-the echo area; full subprocess output lives in BUFFER."
+the echo area; full subprocess output lives in BUFFER.
+When PREVIEW is non-nil, the child build honours
+`org-bootstrap-publish-preview-limit', writing only the N most-recent
+posts for faster local iteration."
   (interactive)
   (when (process-live-p org-bootstrap-publish--async-process)
     (user-error "An async build is already running"))
@@ -1878,12 +1904,14 @@ the echo area; full subprocess output lives in BUFFER."
          (emacs (expand-file-name invocation-name invocation-directory))
          (eval-form (org-bootstrap-publish--async-eval-form
                      (expand-file-name src)
-                     (expand-file-name out))))
+                     (expand-file-name out)
+                     preview)))
     (with-current-buffer buf
       (erase-buffer)
       (insert (format "$ %s --batch -Q -L %s -l org-bootstrap-publish \\\n  --eval %s\n\n"
                       emacs pkg-dir eval-form)))
-    (message "org-bootstrap-publish: starting async build...")
+    (message "org-bootstrap-publish: starting %sbuild..."
+             (if preview "preview " ""))
     (let* ((use-publish-buffer (and buffer
                                     (not (equal buffer org-bootstrap-publish--async-buffer-name))))
            (proc
@@ -1948,12 +1976,21 @@ Suitable for `find-file-hook'."
 ;;;###autoload
 (defun org-bootstrap-publish-rebuild-current-post ()
   "Rebuild the post at point plus all listings.
-Intended as an `after-save-hook' while editing the source file."
+Intended as an `after-save-hook' while editing the source file.
+When `org-bootstrap-publish-preview-limit' is set, only the current
+source file is parsed and the post list is truncated to the limit,
+keeping the rebuild fast."
   (interactive)
-  (let* ((files (or (org-bootstrap-publish--source-files)
-                    (and (org-bootstrap-publish--source-buffer-p)
-                         (list buffer-file-name))
-                    (user-error "Set `org-bootstrap-publish-source-files' or `-source-file' first")))
+  (let* ((all-files (or (org-bootstrap-publish--source-files)
+                        (and (org-bootstrap-publish--source-buffer-p)
+                             (list buffer-file-name))
+                        (user-error "Set `org-bootstrap-publish-source-files' or `-source-file' first")))
+         (preview-p (and org-bootstrap-publish-preview-limit
+                         (natnump org-bootstrap-publish-preview-limit)))
+         (files (if preview-p
+                   (and (org-bootstrap-publish--source-buffer-p)
+                        (list buffer-file-name))
+                 all-files))
          (src   (car files))
          (out (or org-bootstrap-publish-output-dir
                   (user-error "Set `org-bootstrap-publish-output-dir' first")))
@@ -1961,7 +1998,11 @@ Intended as an `after-save-hook' while editing the source file."
           (org-bootstrap-publish--cache-effective-dir out))
          (title (and (org-bootstrap-publish--source-buffer-p)
                      (org-bootstrap-publish--current-post-title)))
-         (posts (org-bootstrap-publish--parse-all files))
+         (all-posts (org-bootstrap-publish--parse-all files))
+         (posts (if preview-p
+                   (let ((n (min org-bootstrap-publish-preview-limit (length all-posts))))
+                     (cl-subseq all-posts 0 n))
+                 all-posts))
          (tag-counts (org-bootstrap-publish--collect-tags posts))
          (target (and title
                       (cl-find title posts
@@ -1973,9 +2014,10 @@ Intended as an `after-save-hook' while editing the source file."
         (org-bootstrap-publish--write-post target out src (car nb) (cadr nb))))
     (org-bootstrap-publish--write-listings posts tag-counts out t)
     (org-bootstrap-publish--copy-assets out)
-    (message "org-bootstrap-publish: rebuilt %s+ listings fast (%.2fs; run M-x org-bootstrap-publish-async for feeds/tag pages)"
+    (message "org-bootstrap-publish: rebuilt %s+ listings fast (%.2fs%s)"
              (if target (format "'%s' " title) "")
-             (- (float-time) t0))))
+             (- (float-time) t0)
+             (if preview-p " [preview]" ""))))
 
 (defun org-bootstrap-publish--start-http-server (out port)
   "Spawn `python3 -m http.server' in OUT on PORT and record the process."
@@ -1988,7 +2030,7 @@ Intended as an `after-save-hook' while editing the source file."
    org-bootstrap-publish--server-process nil))
 
 ;;;###autoload
-(defun org-bootstrap-publish-serve (&optional port)
+(defun org-bootstrap-publish-serve (&optional port preview)
   "Build the site, serve it locally, and rebuild on save.
 Kicks off an asynchronous full build via
 `org-bootstrap-publish-async', then — once that finishes — runs
@@ -1997,7 +2039,8 @@ Kicks off an asynchronous full build via
 and installs an `after-save-hook' on the source file's buffer so
 saves trigger an incremental (synchronous, fast) rebuild.  Also
 registers a `find-file-hook' so later visits of the source file
-pick up the hook."
+pick up the hook.  When PREVIEW is non-nil, only the
+`org-bootstrap-publish-preview-limit' most-recent posts are built."
   (interactive (list (when current-prefix-arg
                        (read-number "Port: "
                                     org-bootstrap-publish-serve-port))))
@@ -2030,8 +2073,26 @@ pick up the hook."
                (add-hook 'after-save-hook
                          #'org-bootstrap-publish-rebuild-current-post nil t))))
          (browse-url (format "http://localhost:%d/" port))
-         (message "org-bootstrap-publish-serve: serving %s on :%d; rebuild hook on %d source file%s (stop with M-x org-bootstrap-publish-stop)"
-                  out port (length files) (if (= 1 (length files)) "" "s")))))))
+         (message "org-bootstrap-publish-serve: serving %s on :%d%s; rebuild hook on %d source file%s (stop with M-x org-bootstrap-publish-stop)"
+                  out port (if preview " (preview)" "")
+                  (length files) (if (= 1 (length files)) "" "s"))))
+     nil preview)))
+
+;;;###autoload
+(defun org-bootstrap-publish-serve-preview (&optional port)
+  "Like `org-bootstrap-publish-serve', but only builds recent posts.
+The number of posts built is controlled by
+`org-bootstrap-publish-preview-limit' (default 10).  All other
+behaviour — HTTP server, rebuild-on-save hook, browser launch — is
+identical to a full serve.  Use this for fast local iteration when
+you only care about the latest posts; run a full serve or publish
+when you need the complete site."
+  (interactive (list (when current-prefix-arg
+                       (read-number "Port: "
+                                    org-bootstrap-publish-serve-port))))
+  (unless org-bootstrap-publish-preview-limit
+    (setq org-bootstrap-publish-preview-limit 10))
+  (org-bootstrap-publish-serve port t))
 
 ;;;###autoload
 (defun org-bootstrap-publish-stop ()
@@ -2224,6 +2285,19 @@ NAME is looked up in `org-bootstrap-publish-sites'."
     (org-bootstrap-publish-stop)
     (org-bootstrap-publish-use-site profile)
     (org-bootstrap-publish-serve)))
+
+;;;###autoload
+(defun org-bootstrap-publish-serve-site-preview (name)
+  "Stop any running obp server, switch to site NAME, then preview-serve it.
+Like `org-bootstrap-publish-serve-site' but only builds the
+`org-bootstrap-publish-preview-limit' most-recent posts."
+  (interactive
+   (list (intern (completing-read "Preview site: " org-bootstrap-publish-sites nil t))))
+  (let ((profile (cdr (assq name org-bootstrap-publish-sites))))
+    (unless profile (user-error "No such site: %s" name))
+    (org-bootstrap-publish-stop)
+    (org-bootstrap-publish-use-site profile)
+    (org-bootstrap-publish-serve-preview)))
 
 ;;;###autoload
 (defun org-bootstrap-publish-publish-all ()

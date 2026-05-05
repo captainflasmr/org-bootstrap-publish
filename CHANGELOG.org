@@ -4,6 +4,15 @@
 
 All notable changes to this package.
 
+* 0.2.0 (2026-05-05)
+
+** Added
+
+- =org-bootstrap-publish-preview-limit= defcustom: when set to an integer, preview builds only render the N most-recent posts instead of the full site.  Per-site profiles can set different limits.
+- =M-x org-bootstrap-publish-serve-preview=: like =serve= but builds only the =preview-limit= most-recent posts before starting the dev server and rebuild-on-save hook.  Defaults =preview-limit= to 10 when unset.
+- =M-x org-bootstrap-publish-serve-site-preview=: switch to a named site profile then preview-serve it.
+- Preview-aware save-hook: when =preview-limit= is active, =rebuild-current-post= only parses the current source file and truncates the post list, making incremental rebuilds much faster for multi-source sites.
+
 * 0.1.0 (2026-05-03)
 
 First numbered release.  Everything below was previously tracked under "Unreleased".
