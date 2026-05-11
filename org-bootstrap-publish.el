@@ -461,14 +461,14 @@ so legacy absolute file: paths still resolve on the deployed site."
          (lambda (m)
            (let ((attrs (match-string 1 m))
                  (tail  (match-string 2 m)))
-             (if (string-match-p "\\bclass=\"" attrs)
-                 (format "<img%s%s>"
-                         (replace-regexp-in-string
-                          "\\bclass=\"\\([^\"]*\\)\""
-                          "class=\"img-fluid rounded \\1\""
-                          attrs)
-                         tail)
-               (format "<img class=\"img-fluid rounded\"%s%s>" attrs tail))))
+     (if (string-match-p "\\bclass=\"" attrs)
+                  (format "<img loading=\"lazy\"%s%s>"
+                          (replace-regexp-in-string
+                           "\\bclass=\"\\([^\"]*\\)\""
+                           "class=\"img-fluid rounded \\1\""
+                           attrs)
+                          tail)
+                (format "<img loading=\"lazy\" class=\"img-fluid rounded\"%s%s>" attrs tail))))
          html))
   (setq html
         (replace-regexp-in-string
@@ -547,7 +547,7 @@ back to `(:value <trimmed-s>)' so positional shortcodes (e.g.
                  (or (plist-get args :src) "")))
            (caption (or (plist-get args :caption) "")))
       (concat "<figure class=\"figure my-3\">"
-              "<img src=\"" src "\" class=\"figure-img img-fluid rounded\" alt=\""
+              "<img src=\"" src "\" loading=\"lazy\" class=\"figure-img img-fluid rounded\" alt=\""
               caption "\">"
               (if (string-empty-p caption) ""
                 (concat "<figcaption class=\"figure-caption\">" caption
@@ -958,7 +958,7 @@ overrides "\n"))
      "<div class=\"col-12 col-md-6 col-lg-3 mb-3\">\n"
      "<article class=\"card h-100 post-card\">\n"
      (if thumb
-         (format "<a href=\"%s\" class=\"post-card-thumb\"><img src=\"%s\" class=\"card-img-top\" alt=\"\"></a>\n"
+         (format "<a href=\"%s\" class=\"post-card-thumb\"><img src=\"%s\" loading=\"lazy\" class=\"card-img-top\" alt=\"\"></a>\n"
                  url thumb)
        "")
      "<div class=\"card-body\">\n"
@@ -1144,7 +1144,7 @@ prev/next navigation and keyboard support."
          (lambda (name)
            (let ((u (concat url-base name)))
              (format
-              "<div class=\"col-6 col-md-3 col-xl-3 pb-1 px-2\"><a href=\"%s\"><img src=\"%s\" alt=\"\" class=\"img-fluid\"></a></div>\n"
+              "<div class=\"col-6 col-md-3 col-xl-3 pb-1 px-2\"><a href=\"%s\"><img src=\"%s\" alt=\"\" loading=\"lazy\" class=\"img-fluid\"></a></div>\n"
               u u)))
          images "")
         "</div>\n"
