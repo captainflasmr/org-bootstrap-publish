@@ -9,6 +9,7 @@ All notable changes to this package.
 ** Added
 
 - Image viewer overlay for gallery posts: click any image in a masonry grid to open a full-screen overlay with prev/next navigation, keyboard arrows, ESC to close, and body scroll lock.  No external dependencies — implemented in ~50 lines of vanilla JS inlined in the generated HTML.
+- Open Graph (`og:`) and Twitter Card meta tags in every page's `<head>`: `og:title`, `og:type`, `og:url`, `og:site_name`, `og:description`, `og:image` (when a post thumbnail is set), and `twitter:card=summary_large_image`.  Post pages get `og:type=article` and the post's own summary/thumbnail; listing pages get `og:type=website` and the site tagline.  Org markup is stripped from summaries automatically.
 
 * 0.2.0 (2026-05-05)
 

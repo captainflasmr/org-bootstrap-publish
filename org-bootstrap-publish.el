@@ -826,7 +826,45 @@ overrides "\n"))
        (or body-rule "")
        "</style>\n"))))
 
-(defun org-bootstrap-publish--page (title body &optional type)
+(defun org-bootstrap-publish--og-tags (title &optional post)
+  (let* ((site-url (string-trim-right org-bootstrap-publish-site-url "/"))
+         (site     (org-bootstrap-publish--escape org-bootstrap-publish-site-title))
+         (ptitle   (org-bootstrap-publish--escape title))
+         (otype    (if post "article" "website"))
+         (url      (if post
+                       (concat site-url "/"
+                               (org-bootstrap-publish--post-path post))
+                     site-url))
+         (desc     (if post
+                       (let* ((raw (or (plist-get post :summary) ""))
+                              (plain (replace-regexp-in-string
+                                      "[ \t\n]+" " "
+                                      (replace-regexp-in-string
+                                       "[*/=~_]" "" raw))))
+                         (org-bootstrap-publish--escape
+                          (if (> (length plain) 200)
+                              (substring plain 0 200)
+                            plain)))
+                     (org-bootstrap-publish--escape
+                      org-bootstrap-publish-site-tagline)))
+         (image    (if post
+                       (let ((thumb (plist-get post :thumbnail)))
+                         (when thumb
+                           (concat site-url
+                                   (org-bootstrap-publish--thumb-url thumb))))
+                     nil)))
+    (concat
+     (format "<meta property=\"og:title\" content=\"%s\">\n" ptitle)
+     (format "<meta property=\"og:type\" content=\"%s\">\n" otype)
+     (format "<meta property=\"og:url\" content=\"%s\">\n" url)
+     (format "<meta property=\"og:site_name\" content=\"%s\">\n" site)
+     (unless (string-empty-p desc)
+       (format "<meta property=\"og:description\" content=\"%s\">\n" desc))
+     (when image
+       (format "<meta property=\"og:image\" content=\"%s\">\n" image))
+     "<meta name=\"twitter:card\" content=\"summary_large_image\">\n")))
+
+(defun org-bootstrap-publish--page (title body &optional type post)
   (let ((bs-css   org-bootstrap-publish-bootstrap-css)
         (bs-js    org-bootstrap-publish-bootstrap-js)
         (hl-css   org-bootstrap-publish-highlight-css)
@@ -835,7 +873,8 @@ overrides "\n"))
         (tagline  (org-bootstrap-publish--escape org-bootstrap-publish-site-tagline))
         (author   (org-bootstrap-publish--escape org-bootstrap-publish-author))
         (year     (format-time-string "%Y"))
-        (ci-class (if (eq type 'listing) "content-inner content-inner-listing" "content-inner")))
+        (ci-class (if (eq type 'listing) "content-inner content-inner-listing" "content-inner"))
+        (og-tags  (org-bootstrap-publish--og-tags title post)))
     (concat
      "<!doctype html>\n"
      "<html lang=\"en\">\n"
@@ -843,6 +882,7 @@ overrides "\n"))
      "<meta charset=\"utf-8\">\n"
      "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
      (format "<title>%s</title>\n" (org-bootstrap-publish--escape title))
+     og-tags
      (format "<link rel=\"stylesheet\" href=\"%s\">\n" bs-css)
      (when hl-css (format "<link rel=\"stylesheet\" href=\"%s\">\n" hl-css))
      (format "<link rel=\"stylesheet\" href=\"%s\">\n"
@@ -1574,7 +1614,7 @@ historical bullet-list behaviour."
       (format "%s | %s"
               (plist-get post :title)
               org-bootstrap-publish-site-title)
-      body))))
+      body nil post))))
 
 (defun org-bootstrap-publish--neighbours (post posts)
   "Return (NEWER OLDER) for POST within the newest-first POSTS list."

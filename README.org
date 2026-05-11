@@ -243,6 +243,25 @@ Two conventions:
 
 Recognised extensions: =gif=, =webp=, =jpe?g=, =tiff=, =png=, =bmp=.
 
+* Social sharing
+
+Every page includes Open Graph and Twitter Card meta tags in the =<head>= so
+shared links render as rich previews in WhatsApp, iMessage, Discord, Slack,
+Twitter/X, LinkedIn, Facebook, Telegram, and other apps.
+
+- **Post pages** (including gallery posts) get =og:type=article= with the
+  post title, summary (Org markup stripped), site name, and the post's
+  canonical URL.  If the heading has a =:thumbnail= (set via
+  =EXPORT_HUGO_CUSTOM_FRONT_MATTER+ :thumbnail ...=), =og:image= is set to
+  its absolute URL.
+- **Listing pages** (index, tags, archive, section landings) get
+  =og:type=website=, the site tagline as description, and the site root
+  as URL.
+
+No configuration needed — tags are generated automatically from existing
+=defcustoms= (=org-bootstrap-publish-site-url=, =site-title=, =site-tagline=)
+and post metadata.
+
 * Shortcodes
 
 ** Built-in: youtube, video, figure
