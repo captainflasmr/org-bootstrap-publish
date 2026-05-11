@@ -219,6 +219,8 @@ Both stack — =blur 12 + opacity 0.2= makes a barely-there abstract backdrop.
 
 A heading marked =:EXPORT_HUGO_TYPE: gallery= renders a Bootstrap masonry grid of every image found in =static/<section>/= relative to the source file, sorted by filename descending so date-prefixed files come out newest-first.  The heading body still renders /above/ the grid, so an intro paragraph survives.
 
+Click any image in the grid to open a full-screen viewer overlay with prev/next navigation (arrow buttons, keyboard =←= / =→=), close on =ESC=, background-click, or the =✕= button.  Body scroll is locked while the viewer is open.  No external dependencies — the viewer is implemented in a ~50-line vanilla JS snippet inlined in the page.
+
 #+begin_src org
 ,* Portraits                                          :portrait:gallery:
 :PROPERTIES:

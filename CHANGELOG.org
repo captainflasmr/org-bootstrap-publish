@@ -4,6 +4,12 @@
 
 All notable changes to this package.
 
+* 0.3.0 (2026-05-11)
+
+** Added
+
+- Image viewer overlay for gallery posts: click any image in a masonry grid to open a full-screen overlay with prev/next navigation, keyboard arrows, ESC to close, and body scroll lock.  No external dependencies — implemented in ~50 lines of vanilla JS inlined in the generated HTML.
+
 * 0.2.0 (2026-05-05)
 
 ** Added
