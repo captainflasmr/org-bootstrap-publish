@@ -10,6 +10,8 @@ This document contains the current bugs/improvements, this is just for me mainly
 
 * Bugs/Improvements
 
+** TODO elisp code colours
+
 * Issues
 
 Issues on the [[https://github.com/captainflasmr/diff-minimap/issues][GitHub Issues page]]
