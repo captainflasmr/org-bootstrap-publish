@@ -621,7 +621,7 @@ entries in `org-bootstrap-publish-shortcodes' share the dispatch."
            body t t)))
   body)
 
-(defconst org-bootstrap-publish--cache-version 12
+(defconst org-bootstrap-publish--cache-version 13
   "Bump to invalidate every cached `--org->html' result.
 Increment when the renderer's output changes for the same input
 (e.g. shortcode rewriter, bootstrapifier, or ox-html settings).")
@@ -652,9 +652,12 @@ Non-nil enables sweeping of stale entries.")
 
 (defun org-bootstrap-publish--cache-key (str)
   (secure-hash 'sha256
-               (format "v%d:%s:%s"
+               (format "v%d:%s:%s:%s"
                        org-bootstrap-publish--cache-version
                        org-bootstrap-publish-htmlize-output-type
+                       (if (and org-bootstrap-publish-htmlize-output-type
+                                (featurep 'htmlize))
+                           "h" "n")
                        str)))
 
 (defun org-bootstrap-publish--cache-path (key)
@@ -1815,7 +1818,7 @@ fast local iteration.  Full publishes always pass nil for PREVIEW."
           (newer nil) (cur posts))
       (while cur
         (cl-incf i)
-        (when (zerop (mod i 20))
+        (when (zerop (mod i 50))
           (message "org-bootstrap-publish: rendering post %d/%d" i total))
         (let ((p (car cur)) (older (cadr cur)))
           (org-bootstrap-publish--write-post p out src newer older)
@@ -1907,8 +1910,13 @@ the parent intended.  PREVIEW is forwarded as the third arg to
 Uses `org-bootstrap-publish-extra-load-path' if set; otherwise
 auto-detects the directory containing `htmlize'."
   (or org-bootstrap-publish-extra-load-path
-      (let ((dir (and (featurep 'htmlize)
-                      (locate-library "htmlize"))))
+      (let ((dir (or (and (featurep 'htmlize)
+                          (locate-library "htmlize"))
+                     ;; The load-time soft-require might have missed
+                     ;; htmlize (e.g. package.el not yet initialised).
+                     ;; Retry now — this is a no-op if already loaded.
+                     (and (require 'htmlize nil t)
+                          (locate-library "htmlize")))))
         (when dir (list (file-name-directory dir))))))
 
 (defun org-bootstrap-publish--async-filter (proc string)
