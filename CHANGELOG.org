@@ -4,6 +4,14 @@
 
 All notable changes to this package.
 
+* 0.4.0 (2026-05-19)
+
+** Changed
+
+- Theme overrides (=org-bootstrap-publish-theme-overrides=) are now emitted against =:root= alone, not every =[data-obp-theme=...]= selector.  The dark and emacs themes in the stylesheet can supply their own values, making the theme toggle produce three visually distinct looks instead of three variations of the same overridden palette.
+
+- Dark and emacs theme blocks in =assets/style.css= no longer set =--obp-sidebar-bg= directly — they inherit it from =:root= and use =color-mix()= to blend theme-specific base colors with the universal sidebar colour, so every theme harmonises with the site's brand colour while keeping its own mood.
+
 * 0.3.0 (2026-05-11)
 
 ** Added

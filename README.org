@@ -172,7 +172,7 @@ The wrapper carries =site-layout-<name>= as a class, so additional layouts can b
 
 Every page ships a sidebar button that cycles through =light= → =dark= → =emacs=.  Choice persists in =localStorage= and is reapplied before first paint, so there's no flash on subsequent loads.
 
-The themes are pure CSS — defined in =assets/style.css= as variable overrides on =[data-obp-theme=...]= selectors.  The toggle just flips that attribute on =<html>=.
+The themes are pure CSS — defined in =assets/style.css= as variable overrides on =[data-obp-theme=...]= selectors.  All themes inherit =--obp-sidebar-bg= from =:root= (which you can brand via =org-bootstrap-publish-theme-overrides=) and blend it with theme-specific base colours through =color-mix()=, so the sidebar/topbar stays your brand colour while the content area shifts mood.  The toggle just flips the =data-obp-theme= attribute on =<html>=.
 
 ** Override CSS variables per site
 
@@ -187,7 +187,9 @@ Want a particular site's sidebar to be navy and orange regardless of which theme
         ("obp-accent-rgb"    . "255, 138, 76")))
 #+end_src
 
-Each pair becomes a CSS custom-property declaration emitted against =:root= /and/ every =[data-obp-theme=...]= selector, so the override survives the light/dark/emacs toggle.  Property names accept the leading =--= or omit it.
+Each pair becomes a CSS custom-property declaration emitted against =:root= alone.  Unlike earlier versions, the overrides no longer target =[data-obp-theme=...]= selectors — the dark and emacs themes in the stylesheet inherit =--obp-sidebar-bg= from =:root= and blend it with their own base colours via =color-mix()=, so the sidebar keeps your brand colour while the content area shifts mood per theme.
+
+Property names accept the leading =--= or omit it.
 
 The full list of variables you can override lives in =assets/style.css= — the defaults are documented there as comments.  The most useful are =obp-sidebar-bg=, =obp-sidebar-fg=, =obp-accent=, =obp-body-bg=, =obp-card-bg=, =obp-card-border=, =obp-link=.
 
@@ -486,7 +488,7 @@ The save-hook rebuild runs synchronously in "fast mode" — it skips per-tag HTM
 | =org-bootstrap-publish-menu-links=             | Sidebar =(label . url)= alist (or long form with =:style=).   |
 | =org-bootstrap-publish-menu-tags=              | Deprecated; use =-menu-links= instead.                        |
 | =org-bootstrap-publish-layout=                 | =sidebar= / =rightbar= / =topbar=.                            |
-| =org-bootstrap-publish-theme-overrides=        | Alist of CSS custom-property overrides.                       |
+| =org-bootstrap-publish-theme-overrides=        | Alist of CSS custom-property overrides for =:root= (light mode). |
 | =org-bootstrap-publish-background-image=       | URL or path for body background image.  =nil= disables.       |
 | =org-bootstrap-publish-background-blur=        | Px blur on the background image.  =nil= or 0 = crisp.         |
 | =org-bootstrap-publish-background-opacity=     | 0.0 – 1.0 opacity on the background image.  =nil= = opaque.   |

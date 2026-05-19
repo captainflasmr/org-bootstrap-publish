@@ -205,14 +205,14 @@ doesn't create stray threads under your account."
   :type '(choice (const :tag "Disabled" nil) string))
 
 (defcustom org-bootstrap-publish-theme-overrides nil
-  "Alist of (PROPERTY . VALUE) overriding CSS custom properties site-wide.
-PROPERTY is a CSS variable name with or without the leading `--'
-(e.g. `obp-sidebar-bg' or `--obp-sidebar-bg').  VALUE is any CSS
-value as a string (e.g. \"#123456\").  Each override is emitted
-against `:root' and every `[data-obp-theme=...]' selector defined
-by the stylesheet, so it survives the light/dark/emacs toggle --
-useful for locking site-wide branding colours like the sidebar
-background even as the post body changes mode."
+  "Alist of (PROPERTY . VALUE) overriding CSS custom properties for the
+default (`:root') theme only.  PROPERTY is a CSS variable name with or
+without the leading `--' (e.g. `obp-sidebar-bg' or `--obp-sidebar-bg').
+VALUE is any CSS value as a string (e.g. \"#123456\").  Overrides are
+emitted against `:root' alone so that `[data-obp-theme=\"dark\"]' and
+`[data-obp-theme=\"emacs\"]' can supply their own values via the
+stylesheet -- useful for branding the default/light appearance while
+letting alternative themes keep distinct colours."
   :type '(alist :key-type string :value-type string))
 
 (defcustom org-bootstrap-publish-background-image nil
@@ -621,7 +621,7 @@ entries in `org-bootstrap-publish-shortcodes' share the dispatch."
            body t t)))
   body)
 
-(defconst org-bootstrap-publish--cache-version 13
+(defconst org-bootstrap-publish--cache-version 14
   "Bump to invalidate every cached `--org->html' result.
 Increment when the renderer's output changes for the same input
 (e.g. shortcode rewriter, bootstrapifier, or ox-html settings).")
@@ -774,8 +774,8 @@ Hugo's content-bundle convention (`section/index.md' → /section/)."
 (defun org-bootstrap-publish--theme-style-block ()
   "Return an inline `<style>' block applying user theme overrides.
 Emits CSS variable overrides from `org-bootstrap-publish-theme-overrides'
-against `:root' and every `[data-obp-theme=...]' selector so they
-survive the light/dark/emacs toggle.  When
+against `:root' alone so the dark/emacs theme blocks in the stylesheet
+can supply their own colours.  When
 `org-bootstrap-publish-background-image' is set, also emits a
 `body::before' rule painting it across the viewport plus a
 `.content-inner' rule giving the whole content column a solid
@@ -791,7 +791,7 @@ string when neither knob is configured."
          (bg        org-bootstrap-publish-background-image)
          (blur      org-bootstrap-publish-background-blur)
          (opacity   org-bootstrap-publish-background-opacity)
-         (selector  ":root, [data-obp-theme=\"dark\"], [data-obp-theme=\"emacs\"]")
+         (selector  ":root")
          (decls
           (mapconcat
            (lambda (pair)
