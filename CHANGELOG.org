@@ -4,6 +4,21 @@
 
 All notable changes to this package.
 
+* 0.4.1 (2026-06-02)
+
+** Fixed
+
+- Custom =org-bootstrap-publish-date-format= now applies to async and published (Cloudflare) builds.  The async child process replays a fixed list of customisations, and =date-format= was missing from it, so deployed sites silently fell back to the default format while interactive builds honoured the custom one.
+- Switching site profiles with =org-bootstrap-publish-use-site= no longer risks resetting =org-bootstrap-publish-asset-file= to the wrong directory.  Its default is now captured once at load time, so re-evaluating it during a profile reset stays stable instead of resolving against whatever buffer happens to be current (which could cause =style.css= to be silently skipped during the asset copy).
+
+** Added
+
+- Async builds now warn when =org-bootstrap-publish-shortcodes= contains anonymous lambda handlers.  These cannot be reliably serialised into the child =emacs --batch= process; define handlers as named function symbols in a file listed in =org-bootstrap-publish-async-init-files= and reference them by symbol.
+
+** Changed
+
+- Internal: reordered three =defcustom=/=defvar= forms (=-extra-load-path=, =-async-init-files=, =-sites=) so they precede their first use, silencing byte-compiler free-variable warnings.  No behavioural change.
+
 * 0.4.0 (2026-05-19)
 
 ** Changed

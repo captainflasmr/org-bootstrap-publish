@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026 James Dyer
 
 ;; Author: James Dyer <captainflasmr@gmail.com>
-;; Version: 0.3.0
+;; Version: 0.4.1
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: org, html, hypermedia
 ;; URL: https://github.com/captainflasmr/org-bootstrap-publish
@@ -255,7 +255,13 @@ ox-html runs, so it survives untouched into the final page.
 
 Built-in shortcodes (`youtube', `video', `figure') run first; this
 hook fires for any unrecognised name found anywhere in the body,
-with or without a surrounding `#+begin_export md' wrapper."
+with or without a surrounding `#+begin_export md' wrapper.
+
+For async and publish builds, FUNCTION must be a named function
+symbol — defined in a file listed in
+`org-bootstrap-publish-async-init-files' — because the handler is
+replayed into a child `emacs --batch' process by name.  Anonymous
+lambdas may not survive that transfer."
   :type '(alist :key-type symbol :value-type function))
 
 (defcustom org-bootstrap-publish-bootstrap-css
@@ -308,10 +314,17 @@ Defaults to \"production\" which maps to the production deployment."
 Defaults to showing the month, day, year, and time (e.g. `April 21, 2026 15:30`)."
   :type 'string)
 
+(defconst org-bootstrap-publish--source-dir
+  (file-name-directory
+   (or load-file-name buffer-file-name default-directory))
+  "Directory this library was loaded from, captured at load time.
+Used for the default of `org-bootstrap-publish-asset-file' so that
+re-evaluating that default (e.g. when `org-bootstrap-publish-use-site'
+resets customs to their standard values) stays stable instead of
+re-resolving against whatever buffer happens to be current.")
+
 (defcustom org-bootstrap-publish-asset-file
-  (expand-file-name "assets/style.css"
-                    (file-name-directory
-                     (or load-file-name buffer-file-name default-directory)))
+  (expand-file-name "assets/style.css" org-bootstrap-publish--source-dir)
   "Path to the stylesheet copied into the output as assets/style.css."
   :type 'file)
 
@@ -1839,6 +1852,25 @@ fast local iteration.  Full publishes always pass nil for PREVIEW."
 
 ;;;; Async build
 
+(defcustom org-bootstrap-publish-extra-load-path nil
+  "Extra directories to add to `load-path' in async/batch builds.
+The async child runs with `emacs --batch -Q', so packages installed
+in your user directory (e.g. `htmlize') are not on the path.  Add
+their directories here so the child can load them.  When nil, the
+package tries to locate `htmlize' automatically from the parent
+Emacs session."
+  :type '(choice (const :tag "Auto-detect" nil)
+                 (repeat directory)))
+
+(defcustom org-bootstrap-publish-async-init-files nil
+  "Extra Elisp files to load in async/batch builds.
+The async child runs with `emacs --batch -Q' and does not load
+user init, so custom shortcode handlers defined outside this package
+are unavailable.  List the files containing those handlers here
+\(e.g. `\"~/.emacs.d/obp-shortcodes.el\"').  Each file is loaded
+with `load' after the package and custom values are set up."
+  :type '(repeat file))
+
 (defvar org-bootstrap-publish--async-process nil
   "Running async build subprocess, or nil.")
 
@@ -1851,6 +1883,7 @@ fast local iteration.  Full publishes always pass nil for PREVIEW."
     org-bootstrap-publish-site-url
     org-bootstrap-publish-site-path
     org-bootstrap-publish-author
+    org-bootstrap-publish-date-format
     org-bootstrap-publish-posts-per-page
     org-bootstrap-publish-exclude-tags
     org-bootstrap-publish-static-dirs
@@ -1892,6 +1925,16 @@ forwarded for single-source builds so the child uses the same file
 the parent intended.  PREVIEW is forwarded as the third arg to
 `org-bootstrap-publish' so the child honours
 `org-bootstrap-publish-preview-limit'."
+  (when (cl-some (lambda (entry) (not (symbolp (cdr entry))))
+                 org-bootstrap-publish-shortcodes)
+    (display-warning
+     'org-bootstrap-publish
+     "Async builds can only replay shortcode handlers that are named \
+function symbols.  Anonymous lambdas in \
+`org-bootstrap-publish-shortcodes' may not survive transfer to the \
+child process; define them in a file listed in \
+`org-bootstrap-publish-async-init-files' and reference them by symbol."
+     :warning))
   (let ((forwarded (if org-bootstrap-publish-source-files nil src))
         (init-loads (and org-bootstrap-publish-async-init-files
                          (mapconcat
@@ -2029,25 +2072,6 @@ open the preview URL.  Examples: \"firefox\", \"google-chrome\",
 `browse-url-browser-function')."
   :type '(choice (const :tag "Default (browse-url)" nil)
                  (string :tag "Browser command")))
-
-(defcustom org-bootstrap-publish-extra-load-path nil
-  "Extra directories to add to `load-path' in async/batch builds.
-The async child runs with `emacs --batch -Q', so packages installed
-in your user directory (e.g. `htmlize') are not on the path.  Add
-their directories here so the child can load them.  When nil, the
-package tries to locate `htmlize' automatically from the parent
-Emacs session."
-  :type '(choice (const :tag "Auto-detect" nil)
-                 (repeat directory)))
-
-(defcustom org-bootstrap-publish-async-init-files nil
-  "Extra Elisp files to load in async/batch builds.
-The async child runs with `emacs --batch -Q' and does not load
-user init, so custom shortcode handlers defined outside this package
-are unavailable.  List the files containing those handlers here
-\(e.g. `\"~/.emacs.d/obp-shortcodes.el\"').  Each file is loaded
-with `load' after the package and custom values are set up."
-  :type '(repeat file))
 
 (defvar org-bootstrap-publish--server-process nil
   "Running HTTP server process, or nil.")
@@ -2337,6 +2361,14 @@ Output is streamed to the *obp-publish* buffer."
 
 ;;;; Site profiles
 
+(defvar org-bootstrap-publish-sites nil
+  "Alist of (NAME . PROFILE) for `org-bootstrap-publish-use-site'.
+Each NAME is a symbol; each PROFILE is an alist of
+\(SYMBOL . VALUE) pairs — the same shape accepted by
+`org-bootstrap-publish-use-site'.  Consumers populate this
+variable with their site definitions; the package itself leaves it
+nil.")
+
 (defun org-bootstrap-publish--managed-vars ()
   "Return list of all `org-bootstrap-publish-' defcustom symbols.
 Auto-derived at runtime so adding a new defcustom to the package
@@ -2370,14 +2402,6 @@ Any symbol not in the profile keeps the package default."
              (or (alist-get 'org-bootstrap-publish-cloudflare-project profile)
                  (alist-get 'org-bootstrap-publish-site-title profile)
                  "profile"))))
-
-(defvar org-bootstrap-publish-sites nil
-  "Alist of (NAME . PROFILE) for `org-bootstrap-publish-use-site'.
-Each NAME is a symbol; each PROFILE is an alist of
-\(SYMBOL . VALUE) pairs — the same shape accepted by
-`org-bootstrap-publish-use-site'.  Consumers populate this
-variable with their site definitions; the package itself leaves it
-nil.")
 
 ;;;###autoload
 (defun org-bootstrap-publish-serve-site (name)
