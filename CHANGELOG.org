@@ -10,6 +10,10 @@ All notable changes to this package.
 
 - Custom =org-bootstrap-publish-date-format= now applies to async and published (Cloudflare) builds.  The async child process replays a fixed list of customisations, and =date-format= was missing from it, so deployed sites silently fell back to the default format while interactive builds honoured the custom one.
 - Switching site profiles with =org-bootstrap-publish-use-site= no longer risks resetting =org-bootstrap-publish-asset-file= to the wrong directory.  Its default is now captured once at load time, so re-evaluating it during a profile reset stays stable instead of resolving against whatever buffer happens to be current (which could cause =style.css= to be silently skipped during the asset copy).
+- A throwing custom shortcode handler no longer aborts the whole build; it is caught, a message naming the shortcode is logged, and the shortcode is dropped.
+- Thumbnails declared via =EXPORT_HUGO_CUSTOM_FRONT_MATTER= are now recognised whether or not the property is written with Org's accumulating =+= suffix.
+- Images that already carry a =loading= attribute no longer get a duplicate =loading="lazy"= added during bootstrapification.
+- =org-bootstrap-publish-clean-site= now deletes its temporary placeholder directory once the deploy finishes, instead of leaking one per invocation.
 
 ** Added
 
@@ -17,7 +21,9 @@ All notable changes to this package.
 
 ** Changed
 
+- The dev-only live-reload poller script is no longer emitted into published/deployed pages — only into dev-serve builds — so deployed sites don't carry the (host-guarded but otherwise inert) poller.
 - Internal: reordered three =defcustom=/=defvar= forms (=-extra-load-path=, =-async-init-files=, =-sites=) so they precede their first use, silencing byte-compiler free-variable warnings.  No behavioural change.
+- Internal: the merged sidebar menu list is now memoised per build; redundant list-length recomputations were hoisted; docstrings were added to all internal functions and three over-long docstrings re-wrapped.  No behavioural change.
 
 * 0.4.0 (2026-05-19)
 
