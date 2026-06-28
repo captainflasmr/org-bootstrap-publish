@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026 James Dyer
 
 ;; Author: James Dyer <captainflasmr@gmail.com>
-;; Version: 0.4.1
+;; Version: 0.5.0
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: org, html, hypermedia
 ;; URL: https://github.com/captainflasmr/org-bootstrap-publish
@@ -42,6 +42,7 @@
 (require 'ox-html)
 (require 'htmlize nil t)
 (require 'subr-x)
+(require 'transient nil t)
 (require 'xml)
 
 ;;;; Customization
@@ -331,6 +332,13 @@ re-resolving against whatever buffer happens to be current.")
   (expand-file-name "assets/style.css" org-bootstrap-publish--source-dir)
   "Path to the stylesheet copied into the output as assets/style.css."
   :type 'file)
+
+(defcustom org-bootstrap-publish-noindex nil
+  "When non-nil, emit `<meta name=\"robots\" content=\"noindex\">' on every
+page and generate a `robots.txt' that disallows all crawlers.
+Useful for private / unlisted sites that should not appear in
+search results."
+  :type 'boolean)
 
 ;;;; Utilities
 
@@ -943,6 +951,8 @@ POST, when given, is the post plist used for Open Graph tags."
      "<head>\n"
      "<meta charset=\"utf-8\">\n"
      "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+     (when org-bootstrap-publish-noindex
+       "<meta name=\"robots\" content=\"noindex\">\n")
      (format "<title>%s</title>\n" (org-bootstrap-publish--escape title))
      og-tags
      (format "<link rel=\"stylesheet\" href=\"%s\">\n" bs-css)
@@ -1798,7 +1808,11 @@ the next full build."
      (org-bootstrap-publish--index-json posts))
     (org-bootstrap-publish--write
      (expand-file-name "reload-token" out)
-     (format "%.6f\n" (float-time))))
+     (format "%.6f\n" (float-time)))
+    (when org-bootstrap-publish-noindex
+      (org-bootstrap-publish--write
+       (expand-file-name "robots.txt" out)
+       "User-agent: *\nDisallow: /\n")))
 
 (defun org-bootstrap-publish--source-files ()
   "List of source files to publish, expanded to absolute paths.
@@ -1984,6 +1998,7 @@ with `load' after the package and custom values are set up."
     org-bootstrap-publish-shortcodes
     org-bootstrap-publish-preview-limit
     org-bootstrap-publish-async-init-files
+    org-bootstrap-publish-noindex
     org-bootstrap-publish--emit-live-reload)
   "Customisation vars propagated to the async build subprocess.")
 
@@ -2447,6 +2462,11 @@ Output is streamed to the *obp-publish* buffer."
 
 ;;;; Site profiles
 
+(defvar org-bootstrap-publish--current-site nil
+  "Symbol naming the active site in `org-bootstrap-publish-sites'.
+Set by `org-bootstrap-publish-use-site' when called with a name.
+Nil when a raw profile alist was used or no switch has happened.")
+
 (defvar org-bootstrap-publish-sites nil
   "Alist of (NAME . PROFILE) for `org-bootstrap-publish-use-site'.
 Each NAME is a symbol; each PROFILE is an alist of
@@ -2484,10 +2504,50 @@ Any symbol not in the profile keeps the package default."
         (set sym (eval (car std)))))
     (dolist (pair profile)
       (set (car pair) (cdr pair)))
+    (when (symbolp name-or-profile)
+      (setq org-bootstrap-publish--current-site name-or-profile))
     (message "obp: switched to %s"
              (or (alist-get 'org-bootstrap-publish-cloudflare-project profile)
                  (alist-get 'org-bootstrap-publish-site-title profile)
                  "profile"))))
+
+;;;###autoload
+(defun org-bootstrap-publish-switch (name)
+  "Switch active site profile to NAME.
+NAME is looked up in `org-bootstrap-publish-sites'."
+  (interactive
+   (list (intern
+          (completing-read
+           (format "Switch site%s: "
+                   (if org-bootstrap-publish--current-site
+                       (format " (current: %s)" org-bootstrap-publish--current-site)
+                     ""))
+           org-bootstrap-publish-sites nil t))))
+  (let* ((profile (cdr (assq name org-bootstrap-publish-sites)))
+         (project (alist-get 'org-bootstrap-publish-cloudflare-project profile)))
+    (unless profile (user-error "No such site: %s" name))
+    (org-bootstrap-publish-use-site profile)
+    (setq org-bootstrap-publish--current-site name)
+    (message "obp: switched to %s" name)))
+
+(when (featurep 'transient)
+  (transient-define-prefix org-bootstrap-publish-menu ()
+    "Transient menu for switching sites and common actions.
+Use `s' to pick a site from `org-bootstrap-publish-sites', then
+`p' to publish, `S' to serve, `b' to build, `c' to clean, or
+`f' to flush the Cloudflare cache."
+    [:description
+     (lambda ()
+       (format "org-bootstrap-publish  |  current: %s"
+               (or org-bootstrap-publish--current-site "(none)")))
+     :class transient-row
+     ("s" "Switch site"   org-bootstrap-publish-switch)
+     ("p" "Publish"       org-bootstrap-publish-publish)
+     ("S" "Serve (live)"  org-bootstrap-publish-serve)
+     ("b" "Build"         org-bootstrap-publish)
+     ("c" "Clean site"    org-bootstrap-publish-clean-site)
+     ("f" "Flush cache"   org-bootstrap-publish-flush-site)
+     ("q" "Quit"          transient-quit-seq)]))
 
 ;;;###autoload
 (defun org-bootstrap-publish-serve-site (name)

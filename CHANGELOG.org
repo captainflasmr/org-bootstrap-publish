@@ -4,6 +4,20 @@
 
 All notable changes to this package.
 
+* 0.5.0 (2026-06-28)
+
+** Added
+
+- =org-bootstrap-publish-noindex= defcustom: when enabled, every page emits =<meta name="robots" content="noindex">= and =robots.txt= with =Disallow: /= is generated at build time.  Useful for private / unlisted sites that should not appear in search results.
+
+- =org-bootstrap-publish-switch= command: interactively pick a site from =org-bootstrap-publish-sites= and activate it.  Shows the current site name in the prompt.
+
+- =org-bootstrap-publish-menu= transient prefix: popup menu listing all common actions (switch site, build, serve, publish, clean site, flush cache) with the current site name in the header.
+
+** Changed
+
+- =org-bootstrap-publish-use-site= now records the selected site name in =org-bootstrap-publish--current-site= so the menu and switch command can display it.
+
 * 0.4.1 (2026-06-02)
 
 ** Fixed
