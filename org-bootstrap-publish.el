@@ -184,6 +184,13 @@ publish every heading regardless of state."
   "Directories, relative to the source file, copied verbatim into the output."
   :type '(repeat string))
 
+(defcustom org-bootstrap-publish-static-exclude-regex nil
+  "Regex matching static files or directories to exclude from copying.
+When non-nil, any absolute source path matching this regex is skipped
+during the `org-bootstrap-publish-static-dirs' copy phase.
+Example: \"\\\\(?:/\\\\.git/\\\\|/\\\\.DS_Store\\\\'\\\\|\\\\.xcf\\\\'\\\\)\""
+  :type '(choice (const :tag "None" nil) regexp))
+
 (defcustom org-bootstrap-publish-layout 'sidebar
   "Page layout style.
 `sidebar' (default) puts the navigation in a vertical bar on the
@@ -1675,13 +1682,26 @@ historical bullet-list behaviour."
       (org-bootstrap-publish--render-section-page-cards root posts page total))))
 
 (defun org-bootstrap-publish--copy-static (source-file out-dir)
-  "Copy each `org-bootstrap-publish-static-dirs' beside SOURCE-FILE into OUT-DIR."
-  (dolist (name org-bootstrap-publish-static-dirs)
-    (let ((src (expand-file-name name (file-name-directory source-file)))
-          (dst (expand-file-name name out-dir)))
-      (when (file-directory-p src)
-        (org-bootstrap-publish--mkdir (file-name-directory dst))
-        (copy-directory src dst nil t t)))))
+  "Copy each `org-bootstrap-publish-static-dirs' beside SOURCE-FILE into OUT-DIR.
+Files matching `org-bootstrap-publish-static-exclude-regex' are skipped."
+  (cl-labels
+      ((copy-tree-filtered (src dst regex)
+         (unless (and regex (string-match-p regex src))
+           (cond
+            ((file-directory-p src)
+             (org-bootstrap-publish--mkdir dst)
+             (dolist (file (directory-files src t directory-files-no-dot-files-regexp))
+               (copy-tree-filtered
+                file
+                (expand-file-name (file-name-nondirectory file) dst)
+                regex)))
+            (t
+             (copy-file src dst t t t))))))
+    (dolist (name org-bootstrap-publish-static-dirs)
+      (let ((src (expand-file-name name (file-name-directory source-file)))
+            (dst (expand-file-name name out-dir)))
+        (when (file-directory-p src)
+          (copy-tree-filtered src dst org-bootstrap-publish-static-exclude-regex))))))
 
 (defun org-bootstrap-publish--copy-assets (out-dir)
   "Copy the stylesheet and write search.js into OUT-DIR/assets/."
@@ -1978,6 +1998,7 @@ with `load' after the package and custom values are set up."
     org-bootstrap-publish-posts-per-page
     org-bootstrap-publish-exclude-tags
     org-bootstrap-publish-static-dirs
+    org-bootstrap-publish-static-exclude-regex
     org-bootstrap-publish-bootstrap-css
     org-bootstrap-publish-bootstrap-js
     org-bootstrap-publish-highlight-css

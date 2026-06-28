@@ -14,6 +14,8 @@ All notable changes to this package.
 
 - =org-bootstrap-publish-menu= transient prefix: popup menu listing all common actions (switch site, build, serve, publish, clean site, flush cache) with the current site name in the header.
 
+- =org-bootstrap-publish-static-exclude-regex= defcustom: when non-nil, files and directories whose absolute path matches the regex are skipped during the static file copy phase.  Replaces the built-in =copy-directory= with a recursive filtered copy.
+
 ** Changed
 
 - =org-bootstrap-publish-use-site= now records the selected site name in =org-bootstrap-publish--current-site= so the menu and switch command can display it.
