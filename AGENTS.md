@@ -36,6 +36,8 @@ emacs --batch -L . -l org-bootstrap-publish --eval "(message \"loaded ok\")"
 | `M-x org-bootstrap-publish-publish-all` | Build + deploy every site in `org-bootstrap-publish-sites` |
 | `M-x org-bootstrap-publish-serve-site` | Stop server, switch to named site, serve it |
 | `M-x org-bootstrap-publish-use-site` | Switch active defcustoms to a named site profile |
+| `M-x org-bootstrap-publish-switch` | Pick a site from `org-bootstrap-publish-sites` and activate it |
+| `M-x org-bootstrap-publish-menu` | Transient menu: switch site, publish, serve, build, clean, flush |
 | `M-x org-bootstrap-publish-clean-site` | Deploy blank placeholder to wipe a Cloudflare site |
 | `M-x org-bootstrap-publish-flush-site` | Purge Cloudflare cache for a named site |
 
@@ -45,6 +47,7 @@ The package provides infrastructure for switching between named site configurati
 
 - **`org-bootstrap-publish-sites`** — alist of `(NAME . PROFILE)` where each PROFILE is an alist of `(SYMBOL . VALUE)` pairs for any `org-bootstrap-publish-*` defcustom. Consumers populate this; the package defaults it to nil.
 - **`org-bootstrap-publish-use-site`** — resets every obp defcustom to its default, then applies a profile. The list of managed variables is auto-derived from all `org-bootstrap-publish-*` defcustoms via `org-bootstrap-publish--managed-vars` — no manual list to maintain.
+- **`org-bootstrap-publish-switch`** — interactively pick and activate a site profile from the list.
 - **`org-bootstrap-publish-serve-site`** — stop server, switch profile, serve.
 - **`org-bootstrap-publish-publish-all`** — sequential build+deploy of all sites with a `cloudflare-project` entry.
 - **`org-bootstrap-publish-clean-site`** / **`org-bootstrap-publish-flush-site`** — deploy a blank page or purge Cloudflare cache for a named site.
