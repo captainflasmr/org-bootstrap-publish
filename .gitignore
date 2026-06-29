@@ -1,3 +1,4 @@
 *.elc
 .wrangler
 public/
+AGENTS.md
