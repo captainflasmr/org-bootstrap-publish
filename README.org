@@ -443,6 +443,19 @@ This means a sidebar link to =/blog/= or =/photos/= works without you having to 
 
 Set per site to keep threads partitioned (e.g. one shortname for the umbrella, another for a sub-site).  The injected embed script skips =localhost= / =127.0.0.1= so the dev server doesn't create stray threads under your account.  =nil= disables.
 
+* Contact links
+
+#+begin_src elisp
+(setq org-bootstrap-publish-contact-links
+      '(("Email"    . "mailto:you@example.com")
+        ("Mastodon" . "https://example.social/@you")
+        ("About"    . "/blog/about/"))
+      org-bootstrap-publish-contact-text
+      "If you have thoughts on this post, get in touch:")
+#+end_src
+
+When =-contact-links= is non-nil, a contact box renders between the post body and the prev/next navigation on every post and gallery page, so readers always have a way to reach you.  Entries are plain =(label . url)= pairs: =mailto:= addresses, site-relative paths, and absolute URLs all work, and labels/URLs are HTML-escaped.  Set =-contact-text= to an empty string to show the links without the intro line.
+
 * Performance: the cross-build cache
 
 Big sites benefit from =org-bootstrap-publish-cache-dir= (defaults to =$XDG_CACHE_HOME/org-bootstrap-publish/=).  Rendered =ox-html= output is keyed by a sha256 of the Org input; warm rebuilds skip =ox-html= entirely for posts that haven't changed.  Stale entries are swept at the end of each build.
@@ -493,6 +506,8 @@ The save-hook rebuild runs synchronously in "fast mode" — it skips per-tag HTM
 | =org-bootstrap-publish-background-blur=        | Px blur on the background image.  =nil= or 0 = crisp.         |
 | =org-bootstrap-publish-background-opacity=     | 0.0 – 1.0 opacity on the background image.  =nil= = opaque.   |
 | =org-bootstrap-publish-disqus-shortname=       | Disqus shortname.  =nil= disables comments.                   |
+| =org-bootstrap-publish-contact-links=          | =(label . url)= alist shown under every post.  =nil= hides it. |
+| =org-bootstrap-publish-contact-text=           | Intro line above the contact links.                           |
 | =org-bootstrap-publish-shortcodes=             | Alist of =(NAME . FUNCTION)= for custom Hugo shortcodes.      |
 | =org-bootstrap-publish-bootstrap-css= / =-js=  | Bootstrap 5 URLs.  Override to vendor.                        |
 | =org-bootstrap-publish-highlight-css= / =-js=  | highlight.js URLs.  =nil= disables.                           |

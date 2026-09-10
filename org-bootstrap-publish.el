@@ -116,6 +116,25 @@ Must start and end with a slash."
   "Author name used in templates and the feed."
   :type 'string)
 
+(defcustom org-bootstrap-publish-contact-links nil
+  "Contact links shown to readers under every post.
+An alist of (LABEL . URL) pairs, e.g.
+
+  \\='((\"Email\"    . \"mailto:you@example.com\")
+    (\"Mastodon\" . \"https://example.social/@you\")
+    (\"About\"    . \"/blog/about/\"))
+
+Labels and URLs are HTML-escaped, so `mailto:' addresses,
+site-relative paths, and absolute URLs all work.  nil (the
+default) disables the contact box entirely."
+  :type '(alist :key-type string :value-type string))
+
+(defcustom org-bootstrap-publish-contact-text
+  "If you have thoughts on this post, get in touch:"
+  "Intro line shown above `org-bootstrap-publish-contact-links'.
+Set to an empty string to render the links without any text."
+  :type 'string)
+
 (defcustom org-bootstrap-publish-posts-per-page 24
   "Maximum number of posts on the index page."
   :type 'integer)
@@ -1158,6 +1177,27 @@ create stray comment threads under your shortname."
       "})();</script>\n")
      org-bootstrap-publish-disqus-shortname)))
 
+(defun org-bootstrap-publish--contact-snippet ()
+  "Return the contact box HTML, or \"\" when no links are configured.
+Rendered under the body of every post and gallery article."
+  (if (null org-bootstrap-publish-contact-links)
+      ""
+    (let ((text (org-bootstrap-publish--escape
+                 org-bootstrap-publish-contact-text)))
+      (concat
+       "<aside class=\"post-contact\">\n"
+       (if (string-empty-p text) ""
+         (format "<p class=\"post-contact-text\">%s</p>\n" text))
+       "<ul class=\"post-contact-links list-inline mb-0\">\n"
+       (mapconcat
+        (lambda (entry)
+          (format "<li class=\"list-inline-item\"><a href=\"%s\">%s</a></li>\n"
+                  (org-bootstrap-publish--escape (cdr entry))
+                  (org-bootstrap-publish--escape (car entry))))
+        org-bootstrap-publish-contact-links "")
+       "</ul>\n"
+       "</aside>\n"))))
+
 (defun org-bootstrap-publish--render-post (post &optional newer older)
   "Render the full article HTML for POST, with NEWER/OLDER neighbour nav."
   (let* ((title  (org-bootstrap-publish--escape (plist-get post :title)))
@@ -1178,6 +1218,7 @@ create stray comment threads under your shortname."
      "</p>\n"
      "</header>\n"
      (format "<div class=\"post-body\">%s</div>\n" body)
+     (org-bootstrap-publish--contact-snippet)
      (org-bootstrap-publish--post-nav newer older)
      (org-bootstrap-publish--disqus-snippet)
      "</article>\n")))
@@ -1217,6 +1258,7 @@ prev/next navigation and keyboard support."
      "</p>\n"
      "</header>\n"
      (format "<div class=\"post-body\">%s</div>\n" body)
+     (org-bootstrap-publish--contact-snippet)
      (if (null images)
          (format "<p class=\"text-muted\">No images found in <code>static/%s/</code>.</p>\n"
                  (org-bootstrap-publish--escape section))
@@ -2010,6 +2052,8 @@ with `load' after the package and custom values are set up."
     org-bootstrap-publish-source-files
     org-bootstrap-publish-cache-dir
     org-bootstrap-publish-disqus-shortname
+    org-bootstrap-publish-contact-links
+    org-bootstrap-publish-contact-text
     org-bootstrap-publish-layout
     org-bootstrap-publish-theme-overrides
     org-bootstrap-publish-background-image

@@ -4,6 +4,12 @@
 
 All notable changes to this package.
 
+* Unreleased
+
+** Added
+
+- =org-bootstrap-publish-contact-links= and =org-bootstrap-publish-contact-text= defcustoms: render a contact box between the post body and the prev/next navigation on every post and gallery page, so readers always have a route to email, social profiles, or an about page.  Disabled by default; both variables are propagated to async/batch builds.
+
 * 0.5.0 (2026-06-28)
 
 ** Added

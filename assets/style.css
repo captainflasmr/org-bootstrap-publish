@@ -311,6 +311,19 @@ body {
   line-height: 1.35;
 }
 
+/* Contact box under each post */
+.post-contact {
+  margin-top: 2rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--obp-card-border);
+  border-radius: 0.5rem;
+  background: var(--obp-card-bg);
+}
+.post-contact-text { margin-bottom: 0.5rem; }
+.post-contact-links { margin-bottom: 0 !important; }
+.post-contact-links a { color: var(--obp-link); text-decoration: none; }
+.post-contact-links a:hover { color: var(--obp-accent); text-decoration: underline; }
+
 /* Tag lists / cloud */
 .tag-cloud a { }
 .post-list li { font-size: 1.02rem; }
