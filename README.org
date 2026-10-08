@@ -435,14 +435,6 @@ Each distinct =EXPORT_HUGO_SECTION= root automatically gets a =/<root>/index.htm
 
 This means a sidebar link to =/blog/= or =/photos/= works without you having to hand-author a landing post for every section.
 
-* Disqus comments
-
-#+begin_src elisp
-(setq org-bootstrap-publish-disqus-shortname "your-shortname")
-#+end_src
-
-Set per site to keep threads partitioned (e.g. one shortname for the umbrella, another for a sub-site).  The injected embed script skips =localhost= / =127.0.0.1= so the dev server doesn't create stray threads under your account.  =nil= disables.
-
 * Contact links
 
 #+begin_src elisp
@@ -505,7 +497,6 @@ The save-hook rebuild runs synchronously in "fast mode" — it skips per-tag HTM
 | =org-bootstrap-publish-background-image=       | URL or path for body background image.  =nil= disables.       |
 | =org-bootstrap-publish-background-blur=        | Px blur on the background image.  =nil= or 0 = crisp.         |
 | =org-bootstrap-publish-background-opacity=     | 0.0 – 1.0 opacity on the background image.  =nil= = opaque.   |
-| =org-bootstrap-publish-disqus-shortname=       | Disqus shortname.  =nil= disables comments.                   |
 | =org-bootstrap-publish-contact-links=          | =(label . url)= alist shown under every post.  =nil= hides it. |
 | =org-bootstrap-publish-contact-text=           | Intro line above the contact links.                           |
 | =org-bootstrap-publish-shortcodes=             | Alist of =(NAME . FUNCTION)= for custom Hugo shortcodes.      |

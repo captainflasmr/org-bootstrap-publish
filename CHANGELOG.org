@@ -10,6 +10,10 @@ All notable changes to this package.
 
 - =org-bootstrap-publish-contact-links= and =org-bootstrap-publish-contact-text= defcustoms: render a contact box between the post body and the prev/next navigation on every post and gallery page, so readers always have a route to email, social profiles, or an about page.  Disabled by default; both variables are propagated to async/batch builds.
 
+** Removed
+
+- Disqus comments (=org-bootstrap-publish-disqus-shortname= and =org-bootstrap-publish--disqus-snippet=): the per-post comment embed is gone; the contact box is the supported reader-feedback route.  Stale =disqus-shortname= entries in site profiles are ignored.  Cache version bumped to 15 so previously rendered embeds are regenerated.
+
 * 0.5.0 (2026-06-28)
 
 ** Added

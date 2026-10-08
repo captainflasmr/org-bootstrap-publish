@@ -224,13 +224,6 @@ register additional layouts without touching the generator."
                  (const :tag "Sidebar (right)" rightbar)
                  (const :tag "Topbar (above)" topbar)))
 
-(defcustom org-bootstrap-publish-disqus-shortname nil
-  "Disqus shortname for the comment thread embedded under each post.
-nil disables the embed; any non-empty string enables it.  The
-injected script skips `localhost'/`127.0.0.1' so the dev server
-doesn't create stray threads under your account."
-  :type '(choice (const :tag "Disabled" nil) string))
-
 (defcustom org-bootstrap-publish-theme-overrides nil
   "Alist of (PROPERTY . VALUE) overriding CSS custom properties for the
 default (`:root') theme only.  PROPERTY is a CSS variable name with or
@@ -696,7 +689,7 @@ entries in `org-bootstrap-publish-shortcodes' share the dispatch."
            body t t)))
   body)
 
-(defconst org-bootstrap-publish--cache-version 14
+(defconst org-bootstrap-publish--cache-version 15
   "Bump to invalidate every cached `--org->html' result.
 Increment when the renderer's output changes for the same input
 (e.g. shortcode rewriter, bootstrapifier, or ox-html settings).")
@@ -1159,24 +1152,6 @@ one.  Either may be nil."
        "</div>\n"
        "</nav>\n"))))
 
-(defun org-bootstrap-publish--disqus-snippet ()
-  "Return the Disqus thread HTML snippet, or \"\" when not configured.
-The injected script skips localhost so the dev server doesn't
-create stray comment threads under your shortname."
-  (if (or (null org-bootstrap-publish-disqus-shortname)
-          (string-empty-p org-bootstrap-publish-disqus-shortname))
-      ""
-    (format
-     (concat
-      "<div id=\"disqus_thread\" class=\"mt-4\"></div>\n"
-      "<script>(function(){"
-      "if(/^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname))return;"
-      "var d=document.createElement('script');d.async=true;"
-      "d.src='https://%s.disqus.com/embed.js';"
-      "(document.head||document.body).appendChild(d);"
-      "})();</script>\n")
-     org-bootstrap-publish-disqus-shortname)))
-
 (defun org-bootstrap-publish--contact-snippet ()
   "Return the contact box HTML, or \"\" when no links are configured.
 Rendered under the body of every post and gallery article."
@@ -1220,7 +1195,6 @@ Rendered under the body of every post and gallery article."
      (format "<div class=\"post-body\">%s</div>\n" body)
      (org-bootstrap-publish--contact-snippet)
      (org-bootstrap-publish--post-nav newer older)
-     (org-bootstrap-publish--disqus-snippet)
      "</article>\n")))
 
 (defun org-bootstrap-publish--gallery-images (source-file section)
@@ -1277,7 +1251,6 @@ prev/next navigation and keyboard support."
          "<script>(function(){var g=document.querySelector('.gallery-grid');if(g&&typeof Masonry!=='undefined'){var m=new Masonry(g,{percentPosition:true});if(typeof imagesLoaded==='function'){imagesLoaded(g).on('progress',function(){m.layout();});}}})();</script>\n"
          "<script>(function(){var a=document.querySelectorAll('.gallery-grid a');if(!a.length)return;var imgs=[].map.call(a,function(l){return l.href});var c=0,img=new Image,pb,nb;var o=document.createElement('div');o.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.9);z-index:1055;';img.style.cssText='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);max-width:95vw;max-height:95vh;object-fit:contain;';o.appendChild(img);var x=document.createElement('button');x.innerHTML='\\u2715';x.style.cssText='position:absolute;top:10px;right:20px;font-size:2rem;color:#fff;background:none;border:none;cursor:pointer;z-index:1;line-height:1;';o.appendChild(x);pb=document.createElement('button');pb.innerHTML='\\u2039';pb.style.cssText='position:absolute;top:50%;left:10px;transform:translateY(-50%);font-size:3rem;color:#fff;background:none;border:none;cursor:pointer;padding:10px;';o.appendChild(pb);nb=document.createElement('button');nb.innerHTML='\\u203a';nb.style.cssText='position:absolute;top:50%;right:10px;transform:translateY(-50%);font-size:3rem;color:#fff;background:none;border:none;cursor:pointer;padding:10px;';o.appendChild(nb);o.style.display='none';document.body.appendChild(o);function s(idx){if(idx<0)idx=imgs.length-1;if(idx>=imgs.length)idx=0;c=idx;img.src=imgs[c];o.style.display='block';document.body.style.overflow='hidden';}function h(){o.style.display='none';document.body.style.overflow='';}a.forEach(function(l,idx){l.addEventListener('click',function(e){e.preventDefault();s(idx);});});o.addEventListener('click',function(e){if(e.target===o)h();});x.addEventListener('click',h);pb.addEventListener('click',function(e){e.stopPropagation();s(c-1);});nb.addEventListener('click',function(e){e.stopPropagation();s(c+1);});document.addEventListener('keydown',function(e){if(o.style.display!=='block')return;if(e.key==='Escape')h();if(e.key==='ArrowLeft')s(c-1);if(e.key==='ArrowRight')s(c+1);});})();</script>\n"))
      (org-bootstrap-publish--post-nav newer older)
-     (org-bootstrap-publish--disqus-snippet)
      "</article>\n")))
 
 (defun org-bootstrap-publish--tag-header (tag posts)
@@ -2051,7 +2024,6 @@ with `load' after the package and custom values are set up."
     org-bootstrap-publish-menu-links
     org-bootstrap-publish-source-files
     org-bootstrap-publish-cache-dir
-    org-bootstrap-publish-disqus-shortname
     org-bootstrap-publish-contact-links
     org-bootstrap-publish-contact-text
     org-bootstrap-publish-layout
